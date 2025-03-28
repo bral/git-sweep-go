@@ -19,6 +19,7 @@ import (
 // Global config variable to be used by the command logic
 var appConfig config.Config
 var isDebug bool // Global variable to store debug flag state
+var version = "dev" // Default version, will be overwritten by ldflags
 
 // logDebugf prints only if the --debug flag is set.
 func logDebugf(format string, a ...any) {
@@ -66,7 +67,7 @@ func printDryRunActions(candidates []types.AnalyzedBranch) {
 
 var rootCmd = &cobra.Command{
 	Use:     "git-sweep",
-	Version: "0.1.0", // Initial version
+	Version: version, // Use the version variable
 	Short:   "git-sweep helps clean up old Git branches interactively",
 	Long: `git-sweep analyzes your local Git repository for branches that are
 merged or haven't been updated recently. It presents these branches
