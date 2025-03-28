@@ -52,7 +52,9 @@ func printDryRunActions(allAnalyzedBranches []types.AnalyzedBranch) {
 		fmt.Printf("  - Delete '%s' (%s)\n", branch.Name, delType)
 		hasLocal = true
 	}
-	if !hasLocal { fmt.Println("  (None)") }
+	if !hasLocal {
+		fmt.Println("  (None)")
+	}
 
 	fmt.Println("\nRemote Deletions:")
 	hasRemote := false
@@ -66,15 +68,16 @@ func printDryRunActions(allAnalyzedBranches []types.AnalyzedBranch) {
 			hasRemote = true
 		}
 	}
-	if !hasRemote { fmt.Println("  (None)") }
+	if !hasRemote {
+		fmt.Println("  (None)")
+	}
 	fmt.Println("\n(Dry run complete, no changes made)")
 }
 
-
 var rootCmd = &cobra.Command{
-	Use:     "git-sweep",
+	Use: "git-sweep",
 	// Version is set dynamically in init() below
-	Short:   "git-sweep helps clean up old Git branches interactively",
+	Short: "git-sweep helps clean up old Git branches interactively",
 	Long: `git-sweep analyzes your local Git repository for branches that are
 merged or haven't been updated recently. It presents these branches
 in an interactive terminal UI, allowing you to select and delete them
@@ -176,7 +179,6 @@ safely (both locally and optionally on the remote).`,
 			logDebugln("-> Remote fetch complete.")
 		}
 
-
 		// 4. Gather Branch Data
 		logDebugln("Gathering branch data...")
 		allBranches, err := gitcmd.GetAllLocalBranchInfo(ctx)
@@ -204,7 +206,6 @@ safely (both locally and optionally on the remote).`,
 		logDebugf("-> Found %d local branches. Primary main branch '%s' hash: %s. Found %d merged branches.\n",
 			len(allBranches), appConfig.PrimaryMainBranch, mainHash, len(mergedBranchesMap))
 
-
 		// 5. Analyze Branches
 		logDebugln("Analyzing branches...")
 		currentBranch, err := gitcmd.GetCurrentBranchName(ctx)
@@ -217,36 +218,36 @@ safely (both locally and optionally on the remote).`,
 		analyzedBranches := analyze.AnalyzeBranches(allBranches, mergedBranchesMap, appConfig, currentBranch)
 		logDebugln("-> Branch analysis complete.")
 
-// 6. Check if any candidates exist before proceeding
-hasCandidates := false
-for _, branch := range analyzedBranches {
-	if branch.Category == types.CategoryMergedOld || branch.Category == types.CategoryUnmergedOld {
-		hasCandidates = true
-		break
-	}
-}
+		// 6. Check if any candidates exist before proceeding
+		hasCandidates := false
+		for _, branch := range analyzedBranches {
+			if branch.Category == types.CategoryMergedOld || branch.Category == types.CategoryUnmergedOld {
+				hasCandidates = true
+				break
+			}
+		}
 
-if !hasCandidates {
-	fmt.Println("-> No candidate branches found for cleanup. Exiting.")
-	os.Exit(0)
-}
-// Don't log candidate count here as we pass all branches to TUI
+		if !hasCandidates {
+			fmt.Println("-> No candidate branches found for cleanup. Exiting.")
+			os.Exit(0)
+		}
+		// Don't log candidate count here as we pass all branches to TUI
 
-// Check for Dry Run *before* launching TUI
-dryRun, _ := cmd.Flags().GetBool("dry-run")
-if dryRun {
-	// Pass all analyzed branches to dry run print function
-	printDryRunActions(analyzedBranches)
-	os.Exit(0) // Exit after printing dry run actions
-}
+		// Check for Dry Run *before* launching TUI
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			// Pass all analyzed branches to dry run print function
+			printDryRunActions(analyzedBranches)
+			os.Exit(0) // Exit after printing dry run actions
+		}
 
-// 7. Launch Interactive TUI (only if not dry run)
-logDebugln("Launching TUI...")
-// Pass *all* analyzed branches to the TUI model
-initialModel := tui.InitialModel(ctx, analyzedBranches, dryRun) // dryRun will be false here
-p := tea.NewProgram(initialModel)
+		// 7. Launch Interactive TUI (only if not dry run)
+		logDebugln("Launching TUI...")
+		// Pass *all* analyzed branches to the TUI model
+		initialModel := tui.InitialModel(ctx, analyzedBranches, dryRun) // dryRun will be false here
+		p := tea.NewProgram(initialModel)
 
-if _, err := p.Run(); err != nil {
+		if _, err := p.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error running TUI: %v\n", err)
 			os.Exit(1)
 		}
@@ -273,6 +274,77 @@ func main() {
 	}
 }
 
+// runQuickStatus performs a fast, non-interactive analysis and prints a summary.
+func runQuickStatus(ctx context.Context) {
+	logDebugln("Running quick status...")
+	// 1. Check Environment (Fast)
+	inGitRepo, err := gitcmd.IsInGitRepo(ctx)
+	if err != nil || !inGitRepo {
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		} else if !inGitRepo {
+			fmt.Fprintln(os.Stderr, "Error: Not inside a Git repository.")
+		}
+		return
+	}
+	// 2. Gather Branch Data (Local only, skip fetch)
+	allBranches, err := gitcmd.GetAllLocalBranchInfo(ctx)
+	if err != nil || len(allBranches) == 0 {
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error gathering branch information: %v\n", err)
+		} else if len(allBranches) == 0 {
+			fmt.Println("No local branches found. Nothing to do.")
+		}
+		return
+	}
+	// 3. Get Merge Status (Requires main branch hash)
+	mainHash, err := gitcmd.GetMainBranchHash(ctx, appConfig.PrimaryMainBranch)
+	if err != nil {
+		// Silently exit if main branch not found
+		return
+	}
+	mergedBranchesMap, err := gitcmd.GetMergedBranches(ctx, mainHash)
+	if err != nil {
+		// Silently exit on error
+		return
+	}
+	// 4. Analyze Branches (No need for current branch check here)
+	analyzedBranches := analyze.AnalyzeBranches(allBranches, mergedBranchesMap, appConfig, "") // Pass empty string for current branch
+	// 5. Count Candidates
+	mergedOldCount := 0
+	unmergedOldCount := 0
+	for _, branch := range analyzedBranches {
+		switch branch.Category {
+		case types.CategoryMergedOld:
+			mergedOldCount++
+		case types.CategoryUnmergedOld:
+			unmergedOldCount++
+		}
+	}
+	// 6. Print Summary
+	if mergedOldCount > 0 || unmergedOldCount > 0 {
+		fmt.Printf("[git-sweep] Candidates: %d merged, %d unmerged old.\n", mergedOldCount, unmergedOldCount)
+	} else {
+		// Print a specific message when no candidates are found
+		fmt.Println("[git-sweep] No candidate branches found.")
+	}
+}
+
+// quickStatusCmd represents the quick-status command
+var quickStatusCmd = &cobra.Command{
+	Use:   "quick-status",
+	Short: "Show a quick summary of candidate branches without interactive mode",
+	Long: `Performs a fast analysis of your Git repository and prints a simple
+summary of candidate branches that could be cleaned up. No changes are made.
+
+Example:
+  git-sweep quick-status`,
+	Run: func(cmd *cobra.Command, args []string) {
+		ctx := context.Background()
+		runQuickStatus(ctx)
+	},
+}
+
 func init() {
 	// Define flags based on PROJECT_PLAN.md Section 10
 	rootCmd.PersistentFlags().Bool("debug", false, "Enable debug logging.")
@@ -282,4 +354,7 @@ func init() {
 	rootCmd.PersistentFlags().Int("age", 0, "Override config: Max age (in days) for unmerged branches (0 uses config default).")
 	rootCmd.PersistentFlags().String("primary-main", "", "Override config: The single main branch name to check merge status against (empty uses config default).")
 	rootCmd.PersistentFlags().StringSlice("protected", []string{}, "Override config: Comma-separated list of protected branch names.")
+
+	// Add quick-status command
+	rootCmd.AddCommand(quickStatusCmd)
 }
