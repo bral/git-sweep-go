@@ -19,12 +19,19 @@ var (
 	selectedStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("212")).Bold(true)
 	cursorStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("212"))
 	helpStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	headingStyle       = lipgloss.NewStyle().Bold(true).Underline(true).MarginBottom(1)
-	confirmPromptStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Bold(true)
+	// headingStyle       = lipgloss.NewStyle().Bold(true).Underline(true).MarginBottom(1) // No longer needed
+	confirmPromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Bold(true)
 	warningStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("202")) // Orange/Red for warnings
 	successStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("78"))  // Green for success
 	errorStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))  // Red for errors
 	spinnerStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("205")) // Spinner color
+	protectedStyle     = lipgloss.NewStyle().Faint(true)                         // Style for protected/active branches
+	categoryStyleMap   = map[types.BranchCategory]lipgloss.Style{
+		types.CategoryProtected:   helpStyle.Copy().Faint(true),
+		types.CategoryActive:      helpStyle.Copy().Faint(true),
+		types.CategoryMergedOld:   successStyle.Copy(), // Use success style for safe-to-delete merged
+		types.CategoryUnmergedOld: warningStyle.Copy(),
+	}
 )
 
 type viewState int
@@ -47,61 +54,33 @@ type resultsMsg struct {
 
 // Model represents the state of the TUI application.
 type Model struct {
-	ctx                context.Context        // Context for git commands
-	dryRun             bool                   // Is this a dry run?
-	originalCandidates []types.AnalyzedBranch // Original list of candidates passed in
-	mergedBranches     []types.AnalyzedBranch // Filtered list: MergedOld
-	unmergedBranches   []types.AnalyzedBranch // Filtered list: UnmergedOld
-	listOrder          []int                  // Maps display index to originalCandidates index
-	cursor             int                    // Index in the combined displayed list (listOrder)
-	selectedLocal      map[int]bool           // Map using *original index* as key
-	selectedRemote     map[int]bool           // Map using *original index* as key
-	viewState          viewState              // Current view state (selecting, confirming, etc.)
-	results            []types.DeleteResult   // Stores the results of deletion attempts
-	spinner            spinner.Model          // Spinner model
+	ctx               context.Context        // Context for git commands
+	dryRun            bool                   // Is this a dry run?
+	allAnalyzedBranches []types.AnalyzedBranch // Full list of analyzed branches
+	cursor            int                    // Index in the allAnalyzedBranches list
+	selectedLocal     map[int]bool           // Map using direct index as key
+	selectedRemote    map[int]bool           // Map using direct index as key
+	viewState         viewState              // Current view state (selecting, confirming, etc.)
+	results           []types.DeleteResult   // Stores the results of deletion attempts
+	spinner           spinner.Model          // Spinner model
 	// TODO: Add dimensions for layout
 }
 
-// InitialModel creates the starting model for the TUI, grouping branches.
-func InitialModel(ctx context.Context, candidates []types.AnalyzedBranch, dryRun bool) Model {
+// InitialModel creates the starting model for the TUI, using all analyzed branches.
+func InitialModel(ctx context.Context, analyzedBranches []types.AnalyzedBranch, dryRun bool) Model {
 	s := spinner.New()
 	s.Style = spinnerStyle
 	s.Spinner = spinner.Dot
 
-	merged := make([]types.AnalyzedBranch, 0)
-	unmerged := make([]types.AnalyzedBranch, 0)
-	order := make([]int, 0, len(candidates)) // Pre-allocate slice
-
-	// Group branches and store original indices
-	for i, branch := range candidates {
-		if branch.Category == types.CategoryMergedOld {
-			merged = append(merged, branch)
-			order = append(order, i) // Store original index
-		} else if branch.Category == types.CategoryUnmergedOld {
-			// Append unmerged later to maintain order
-		}
-	}
-	// Append unmerged branches and their original indices
-	for i, branch := range candidates {
-		if branch.Category == types.CategoryUnmergedOld {
-			unmerged = append(unmerged, branch)
-			order = append(order, i) // Store original index
-		}
-	}
-
-
 	return Model{
-		ctx:                ctx,
-		dryRun:             dryRun,
-		originalCandidates: candidates, // Store original list
-		mergedBranches:     merged,
-		unmergedBranches:   unmerged,
-		listOrder:          order, // Store the display order mapping
-		selectedLocal:      make(map[int]bool), // Key is original index
-		selectedRemote:     make(map[int]bool), // Key is original index
-		cursor:             0,
-		viewState:          stateSelecting,
-		spinner:            s,
+		ctx:               ctx,
+		dryRun:            dryRun,
+		allAnalyzedBranches: analyzedBranches, // Store the full list
+		selectedLocal:     make(map[int]bool), // Key is direct index
+		selectedRemote:    make(map[int]bool), // Key is direct index
+		cursor:            0,
+		viewState:         stateSelecting,
+		spinner:           s,
 	}
 }
 
@@ -113,47 +92,48 @@ func (m Model) Init() tea.Cmd {
 // performDeletionCmd is a tea.Cmd that executes the branch deletions.
 func performDeletionCmd(ctx context.Context, branchesToDelete []gitcmd.BranchToDelete, dryRun bool) tea.Cmd {
 	return func() tea.Msg {
-		// This function runs in a separate goroutine.
 		results := gitcmd.DeleteBranches(ctx, branchesToDelete, dryRun)
-		return resultsMsg{results: results} // Send the results back to the Update loop
+		return resultsMsg{results: results}
 	}
+}
+
+// isSelectable checks if the branch at the given index is a candidate for deletion.
+func (m Model) isSelectable(index int) bool {
+	if index < 0 || index >= len(m.allAnalyzedBranches) {
+		return false
+	}
+	category := m.allAnalyzedBranches[index].Category
+	return category == types.CategoryMergedOld || category == types.CategoryUnmergedOld
 }
 
 // Update handles messages and updates the model accordingly.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd // Command to potentially return
+	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
 
-	// Handle results message
 	case resultsMsg:
 		m.results = msg.results
 		m.viewState = stateResults
-		return m, nil // Stop spinner implicitly by not returning Tick
+		return m, nil
 
-	// Handle spinner tick
 	case spinner.TickMsg:
-		// Only update spinner if we are in the deleting state
 		if m.viewState == stateDeleting {
 			m.spinner, cmd = m.spinner.Update(msg)
 			return m, cmd
 		}
 		return m, nil
 
-
-	// Handle key presses
 	case tea.KeyMsg:
-		// Global quit keys
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
 
 		switch m.viewState {
 
-		// --- Selecting State ---
 		case stateSelecting:
-			totalItems := len(m.listOrder)
-			if totalItems == 0 { // Handle case with no candidates
+			totalItems := len(m.allAnalyzedBranches)
+			if totalItems == 0 {
 				if msg.String() == "q" { return m, tea.Quit }
 				return m, nil
 			}
@@ -163,34 +143,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 
 			case "up", "k":
-				if m.cursor > 0 {
-					m.cursor--
-				}
+				if m.cursor > 0 { m.cursor-- }
 			case "down", "j":
-				if m.cursor < totalItems-1 {
-					m.cursor++
+				if m.cursor < totalItems-1 { m.cursor++ }
+
+			case " ": // Toggle local selection only if selectable
+				if m.isSelectable(m.cursor) {
+					_, exists := m.selectedLocal[m.cursor]
+					if exists {
+						delete(m.selectedLocal, m.cursor)
+						delete(m.selectedRemote, m.cursor) // Also deselect remote
+					} else {
+						m.selectedLocal[m.cursor] = true
+					}
 				}
 
-			case " ": // Toggle local selection
-				originalIndex := m.listOrder[m.cursor] // Get original index from display order
-				_, exists := m.selectedLocal[originalIndex]
-				if exists {
-					delete(m.selectedLocal, originalIndex)
-					delete(m.selectedRemote, originalIndex) // Also deselect remote
-				} else {
-					m.selectedLocal[originalIndex] = true
-				}
-
-			case "tab", "r": // Toggle remote selection
-				originalIndex := m.listOrder[m.cursor]
-				if _, localSelected := m.selectedLocal[originalIndex]; localSelected {
-					branch := m.originalCandidates[originalIndex] // Get branch details from original list
-					if branch.Remote != "" {
-						_, remoteSelected := m.selectedRemote[originalIndex]
-						if remoteSelected {
-							delete(m.selectedRemote, originalIndex)
-						} else {
-							m.selectedRemote[originalIndex] = true
+			case "tab", "r": // Toggle remote selection only if selectable and local is selected
+				if m.isSelectable(m.cursor) {
+					if _, localSelected := m.selectedLocal[m.cursor]; localSelected {
+						branch := m.allAnalyzedBranches[m.cursor]
+						if branch.Remote != "" {
+							_, remoteSelected := m.selectedRemote[m.cursor]
+							if remoteSelected {
+								delete(m.selectedRemote, m.cursor)
+							} else {
+								m.selectedRemote[m.cursor] = true
+							}
 						}
 					}
 				}
@@ -202,15 +180,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-		// --- Confirming State ---
 		case stateConfirming:
 			switch msg.String() {
-			case "q", "n", "N", "esc": // Cancel confirmation
+			case "q", "n", "N", "esc":
 				m.viewState = stateSelecting
 				return m, nil
-
-			case "y", "Y": // Confirm deletion
-				m.viewState = stateDeleting // Switch to deleting state
+			case "y", "Y":
+				m.viewState = stateDeleting
 				branchesToDelete := m.GetBranchesToDelete()
 				return m, tea.Batch(
 					performDeletionCmd(m.ctx, branchesToDelete, m.dryRun),
@@ -218,15 +194,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				)
 			}
 
-		// --- Deleting State ---
 		case stateDeleting:
-			// Ignore key presses while deleting, wait for resultsMsg
-			return m, nil
+			return m, nil // Ignore keys while deleting
 
-		// --- Results State ---
 		case stateResults:
-			// Any key exits from results view
-			return m, tea.Quit
+			return m, tea.Quit // Any key exits
 		}
 	}
 
@@ -245,95 +217,56 @@ func (m Model) View() string {
 
 	switch m.viewState {
 
-	// --- Selecting View ---
 	case stateSelecting:
-		title := "Select branches to delete (Space: local, Tab/r: remote):"
-		if m.dryRun {
-			title = warningStyle.Render("[Dry Run] ") + title
-		}
-		// Add concise note about remote selection dependency here
-		title += helpStyle.Render(" (Tab/r requires local selection first)")
+		title := "Branches (Space: select local, Tab/r: select remote):"
+		if m.dryRun { title = warningStyle.Render("[Dry Run] ") + title }
+		title += helpStyle.Render(" (Remote requires local)")
 		b.WriteString(title + "\n\n")
 
-
-		itemIndex := 0 // Tracks the overall item index for cursor comparison
-
-		// Render Merged Branches
-		if len(m.mergedBranches) > 0 {
-			b.WriteString(headingStyle.Render("Merged Branches (Safe to delete):") + "\n")
-			for _, branch := range m.mergedBranches {
-				originalIndex := -1
-				// Find original index (less efficient, consider storing it in AnalyzedBranch if needed often)
-				for idx, orig := range m.originalCandidates {
-					if orig.CommitHash == branch.CommitHash && orig.Name == branch.Name { // Use Hash+Name as unique ID
-						originalIndex = idx
-						break
-					}
-				}
-				if originalIndex == -1 { continue } // Should not happen
-
+		if len(m.allAnalyzedBranches) == 0 {
+			b.WriteString(helpStyle.Render("No branches found.") + "\n")
+		} else {
+			for i, branch := range m.allAnalyzedBranches {
 				cursor := " "
-				if m.cursor == itemIndex { cursor = cursorStyle.Render(">") }
+				if m.cursor == i { cursor = cursorStyle.Render(">") }
 
-				localChecked := "[ ]"
-				if _, ok := m.selectedLocal[originalIndex]; ok { localChecked = selectedStyle.Render("[x]") }
+				isCandidate := m.isSelectable(i)
+				lineStyle := lipgloss.NewStyle() // Default style
+				localCheckbox := "[-]" // Default disabled checkbox
+				remoteCheckbox := "[-]"
 
-				remoteChecked := "[ ]"; remoteInfo := "(none)"
-				if branch.Remote != "" {
-					remoteInfo = fmt.Sprintf("(%s/%s)", branch.Remote, branch.Name)
-					if _, ok := m.selectedRemote[originalIndex]; ok { remoteChecked = selectedStyle.Render("[x]") }
-				} else { remoteChecked = helpStyle.Render("[-]") }
+				if isCandidate {
+					localCheckbox = "[ ]" // Enable checkbox
+					if _, ok := m.selectedLocal[i]; ok { localCheckbox = selectedStyle.Render("[x]") }
 
-				line := fmt.Sprintf("Local: %s %s | Remote: %s %s", localChecked, branch.Name, remoteChecked, remoteInfo)
-				if m.cursor == itemIndex { b.WriteString(cursor + " " + selectedStyle.Render(line) + "\n") } else { b.WriteString(cursor + " " + line + "\n") }
-				itemIndex++
-			}
-			b.WriteString("\n") // Add space between groups
-		}
-
-		// Render Unmerged Branches
-		if len(m.unmergedBranches) > 0 {
-			b.WriteString(headingStyle.Render("Unmerged Old Branches (Requires force delete -D):") + "\n")
-			for _, branch := range m.unmergedBranches {
-				originalIndex := -1
-				for idx, orig := range m.originalCandidates {
-					if orig.CommitHash == branch.CommitHash && orig.Name == branch.Name {
-						originalIndex = idx
-						break
+					if branch.Remote != "" {
+						remoteCheckbox = "[ ]" // Enable remote checkbox
+						if _, ok := m.selectedRemote[i]; ok { remoteCheckbox = selectedStyle.Render("[x]") }
 					}
+				} else {
+					lineStyle = protectedStyle // Apply faint style to non-candidates
 				}
-				if originalIndex == -1 { continue }
 
-				cursor := " "
-				if m.cursor == itemIndex { cursor = cursorStyle.Render(">") }
+				remoteInfo := "(none)"
+				if branch.Remote != "" { remoteInfo = fmt.Sprintf("(%s/%s)", branch.Remote, branch.Name) }
 
-				localChecked := "[ ]"
-				if _, ok := m.selectedLocal[originalIndex]; ok { localChecked = selectedStyle.Render("[x]") }
+				categoryStyle := categoryStyleMap[branch.Category]
+				line := fmt.Sprintf("Local: %s %s | Remote: %s %s %s",
+					localCheckbox, branch.Name, remoteCheckbox, remoteInfo, categoryStyle.Render("("+string(branch.Category)+")"))
 
-				remoteChecked := "[ ]"; remoteInfo := "(none)"
-				if branch.Remote != "" {
-					remoteInfo = fmt.Sprintf("(%s/%s)", branch.Remote, branch.Name)
-					if _, ok := m.selectedRemote[originalIndex]; ok { remoteChecked = selectedStyle.Render("[x]") }
-				} else { remoteChecked = helpStyle.Render("[-]") }
-
-				line := fmt.Sprintf("Local: %s %s | Remote: %s %s", localChecked, branch.Name, remoteChecked, remoteInfo)
-				// Apply warning style to unmerged lines
-				line = warningStyle.Render(line)
-				if m.cursor == itemIndex { b.WriteString(cursor + " " + selectedStyle.Render(line) + "\n") } else { b.WriteString(cursor + " " + line + "\n") }
-				itemIndex++
+				// Apply faint style if not a candidate, otherwise apply selection style if cursor is on it
+				if !isCandidate {
+					b.WriteString(cursor + " " + lineStyle.Render(line) + "\n")
+				} else if m.cursor == i {
+					b.WriteString(cursor + " " + selectedStyle.Render(line) + "\n")
+				} else {
+					b.WriteString(cursor + " " + line + "\n")
+				}
 			}
-			b.WriteString("\n")
 		}
 
-		if itemIndex == 0 { // If no candidates were rendered
-			b.WriteString(helpStyle.Render("No candidate branches found for cleanup.") + "\n")
-		}
+		b.WriteString(helpStyle.Render("\nEnter: Confirm | q/Ctrl+C: Quit\n"))
 
-		help := "\nEnter: Confirm | q/Ctrl+C: Quit\n" +
-			"Note: Remote branch (Tab/r) can only be selected if local branch (Space) is also selected."
-		b.WriteString(helpStyle.Render(help))
-
-	// --- Confirming View ---
 	case stateConfirming:
 		title := "Confirm Actions:"
 		if m.dryRun { title = warningStyle.Render("[Dry Run] ") + title }
@@ -347,13 +280,11 @@ func (m Model) View() string {
 		}
 		b.WriteString("\n" + confirmPromptStyle.Render("Proceed? (y/N) "))
 
-	// --- Deleting View ---
 	case stateDeleting:
 		b.WriteString(m.spinner.View())
 		b.WriteString(" Processing deletions...")
 		if m.dryRun { b.WriteString(warningStyle.Render(" (Dry Run)")) }
 
-	// --- Results View ---
 	case stateResults:
 		title := "Deletion Results:"
 		if m.dryRun { title = warningStyle.Render("[Dry Run] ") + title }
@@ -367,36 +298,29 @@ func (m Model) View() string {
 	return docStyle.Render(b.String())
 }
 
-// GetBranchesToDelete builds the list of actions based on current selections using original indices.
+// GetBranchesToDelete builds the list of actions based on current selections using direct indices.
 func (m Model) GetBranchesToDelete() []gitcmd.BranchToDelete {
 	branches := make([]gitcmd.BranchToDelete, 0)
-	// Iterate through the original selection maps which use original indices
-	for originalIndex := range m.selectedLocal {
-		branchInfo := m.originalCandidates[originalIndex]
-		branches = append(branches, gitcmd.BranchToDelete{
-			Name:     branchInfo.Name,
-			IsRemote: false,
-			Remote:   "",
-			IsMerged: branchInfo.IsMerged,
-			Hash:     branchInfo.CommitHash,
-		})
-	}
-	for originalIndex := range m.selectedRemote {
-		branchInfo := m.originalCandidates[originalIndex]
-		if branchInfo.Remote != "" { // Ensure remote exists
+	// Iterate through the selection maps which use direct indices
+	for index := range m.selectedLocal {
+		if index < 0 || index >= len(m.allAnalyzedBranches) { continue } // Bounds check
+		branchInfo := m.allAnalyzedBranches[index]
+		// Double check it's actually a candidate before adding
+		if branchInfo.Category == types.CategoryMergedOld || branchInfo.Category == types.CategoryUnmergedOld {
 			branches = append(branches, gitcmd.BranchToDelete{
-				Name:     branchInfo.Name,
-				IsRemote: true,
-				Remote:   branchInfo.Remote,
-				IsMerged: branchInfo.IsMerged,
-				Hash:     branchInfo.CommitHash,
+				Name:     branchInfo.Name, IsRemote: false, Remote: "", IsMerged: branchInfo.IsMerged, Hash: branchInfo.CommitHash,
 			})
 		}
 	}
-	// Note: This might create duplicate entries if both local and remote are selected,
-	// but DeleteBranches handles them as separate operations. Consider sorting or optimizing later if needed.
+	for index := range m.selectedRemote {
+		if index < 0 || index >= len(m.allAnalyzedBranches) { continue } // Bounds check
+		branchInfo := m.allAnalyzedBranches[index]
+		// Double check it's actually a candidate and has a remote
+		if (branchInfo.Category == types.CategoryMergedOld || branchInfo.Category == types.CategoryUnmergedOld) && branchInfo.Remote != "" {
+			branches = append(branches, gitcmd.BranchToDelete{
+				Name:     branchInfo.Name, IsRemote: true, Remote:   branchInfo.Remote, IsMerged: branchInfo.IsMerged, Hash:     branchInfo.CommitHash,
+			})
+		}
+	}
 	return branches
 }
-
-// ConfirmedDeletion is less relevant now.
-// func (m Model) ConfirmedDeletion() bool { return m.Confirmed }

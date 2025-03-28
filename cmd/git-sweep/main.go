@@ -6,6 +6,7 @@ import (
 	"errors"  // Added for error checking
 	"fmt"
 	"os"
+	"runtime/debug" // Added for build info
 
 	"github.com/bral/git-sweep-go/internal/analyze"
 	"github.com/bral/git-sweep-go/internal/config" // Added config import
@@ -19,7 +20,6 @@ import (
 // Global config variable to be used by the command logic
 var appConfig config.Config
 var isDebug bool // Global variable to store debug flag state
-var version = "dev" // Default version, will be overwritten by ldflags
 
 // logDebugf prints only if the --debug flag is set.
 func logDebugf(format string, a ...any) {
@@ -35,13 +35,16 @@ func logDebugln(a ...any) {
 	}
 }
 
-// printDryRunActions prints the actions that would be taken for the candidates.
-func printDryRunActions(candidates []types.AnalyzedBranch) {
-	fmt.Println("[Dry Run] Proposed Actions:")
+// printDryRunActions prints the actions that would be taken for actual candidates.
+func printDryRunActions(allAnalyzedBranches []types.AnalyzedBranch) {
+	fmt.Println("[Dry Run] Proposed Actions (Only showing candidates):")
 	fmt.Println("\nLocal Deletions:")
 	hasLocal := false
-	for _, branch := range candidates {
-		// Assume all candidates would be selected in a real run for dry-run output
+	for _, branch := range allAnalyzedBranches {
+		// Only print actions for actual candidates
+		if !(branch.Category == types.CategoryMergedOld || branch.Category == types.CategoryUnmergedOld) {
+			continue
+		}
 		delType := "-d (safe)"
 		if !branch.IsMerged {
 			delType = "-D (force)"
@@ -53,8 +56,11 @@ func printDryRunActions(candidates []types.AnalyzedBranch) {
 
 	fmt.Println("\nRemote Deletions:")
 	hasRemote := false
-	for _, branch := range candidates {
-		// Assume remote is selected if local is and remote exists
+	for _, branch := range allAnalyzedBranches {
+		// Only print actions for actual candidates with remotes
+		if !(branch.Category == types.CategoryMergedOld || branch.Category == types.CategoryUnmergedOld) {
+			continue
+		}
 		if branch.Remote != "" {
 			fmt.Printf("  - Delete remote '%s/%s'\n", branch.Remote, branch.Name)
 			hasRemote = true
@@ -67,7 +73,7 @@ func printDryRunActions(candidates []types.AnalyzedBranch) {
 
 var rootCmd = &cobra.Command{
 	Use:     "git-sweep",
-	Version: version, // Use the version variable
+	// Version is set dynamically in init() below
 	Short:   "git-sweep helps clean up old Git branches interactively",
 	Long: `git-sweep analyzes your local Git repository for branches that are
 merged or haven't been updated recently. It presents these branches
@@ -211,35 +217,36 @@ safely (both locally and optionally on the remote).`,
 		analyzedBranches := analyze.AnalyzeBranches(allBranches, mergedBranchesMap, appConfig, currentBranch)
 		logDebugln("-> Branch analysis complete.")
 
+// 6. Check if any candidates exist before proceeding
+hasCandidates := false
+for _, branch := range analyzedBranches {
+	if branch.Category == types.CategoryMergedOld || branch.Category == types.CategoryUnmergedOld {
+		hasCandidates = true
+		break
+	}
+}
 
-		// 6. Filter Candidates
-		logDebugln("Filtering candidates...")
-		candidates := make([]types.AnalyzedBranch, 0)
-		for _, branch := range analyzedBranches {
-			if branch.Category == types.CategoryMergedOld || branch.Category == types.CategoryUnmergedOld {
-				candidates = append(candidates, branch)
-			}
-		}
+if !hasCandidates {
+	fmt.Println("-> No candidate branches found for cleanup. Exiting.")
+	os.Exit(0)
+}
+// Don't log candidate count here as we pass all branches to TUI
 
-		if len(candidates) == 0 {
-			fmt.Println("-> No candidate branches found for cleanup. Exiting.")
-			os.Exit(0)
-		}
-		logDebugf("-> Found %d candidate branches for cleanup.\n", len(candidates))
+// Check for Dry Run *before* launching TUI
+dryRun, _ := cmd.Flags().GetBool("dry-run")
+if dryRun {
+	// Pass all analyzed branches to dry run print function
+	printDryRunActions(analyzedBranches)
+	os.Exit(0) // Exit after printing dry run actions
+}
 
-		// Check for Dry Run *before* launching TUI
-		dryRun, _ := cmd.Flags().GetBool("dry-run")
-		if dryRun {
-			printDryRunActions(candidates)
-			os.Exit(0) // Exit after printing dry run actions
-		}
+// 7. Launch Interactive TUI (only if not dry run)
+logDebugln("Launching TUI...")
+// Pass *all* analyzed branches to the TUI model
+initialModel := tui.InitialModel(ctx, analyzedBranches, dryRun) // dryRun will be false here
+p := tea.NewProgram(initialModel)
 
-		// 7. Launch Interactive TUI (only if not dry run)
-		logDebugln("Launching TUI...")
-		initialModel := tui.InitialModel(ctx, candidates, dryRun) // dryRun will be false here
-		p := tea.NewProgram(initialModel)
-
-		if _, err := p.Run(); err != nil {
+if _, err := p.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error running TUI: %v\n", err)
 			os.Exit(1)
 		}
@@ -253,6 +260,14 @@ safely (both locally and optionally on the remote).`,
 }
 
 func main() {
+	// Set version dynamically
+	info, ok := debug.ReadBuildInfo()
+	if ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		rootCmd.Version = info.Main.Version
+	} else {
+		rootCmd.Version = "dev" // Fallback if no version info found
+	}
+
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
