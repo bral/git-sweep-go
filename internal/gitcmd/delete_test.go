@@ -20,7 +20,7 @@ func TestDeleteBranches(t *testing.T) {
 		{Name: "local-merged", IsRemote: false, IsMerged: true, Hash: "h1"},
 		{Name: "local-unmerged", IsRemote: false, IsMerged: false, Hash: "h2"},
 		{Name: "remote-branch", IsRemote: true, Remote: "origin", Hash: "h3"},
-		{Name: "fail-local", IsRemote: false, IsMerged: true, Hash: "h4"}, // Will simulate failure
+		{Name: "fail-local", IsRemote: false, IsMerged: true, Hash: "h4"},   // Will simulate failure
 		{Name: "fail-remote", IsRemote: true, Remote: "origin", Hash: "h5"}, // Will simulate failure
 	}
 
@@ -33,11 +33,32 @@ func TestDeleteBranches(t *testing.T) {
 	}
 
 	expectedResultsDryRun := []types.DeleteResult{
-		{BranchName: "local-merged", IsRemote: false, Success: true, Message: "Dry Run: Would execute: git branch -d local-merged", Cmd: "git branch -d local-merged"},
-		{BranchName: "local-unmerged", IsRemote: false, Success: true, Message: "Dry Run: Would execute: git branch -D local-unmerged", Cmd: "git branch -D local-unmerged"},
-		{BranchName: "remote-branch", IsRemote: true, RemoteName: "origin", Success: true, Message: "Dry Run: Would execute: git push origin --delete remote-branch", Cmd: "git push origin --delete remote-branch"},
-		{BranchName: "fail-local", IsRemote: false, Success: true, Message: "Dry Run: Would execute: git branch -d fail-local", Cmd: "git branch -d fail-local"}, // Dry run always "succeeds"
-		{BranchName: "fail-remote", IsRemote: true, RemoteName: "origin", Success: true, Message: "Dry Run: Would execute: git push origin --delete fail-remote", Cmd: "git push origin --delete fail-remote"}, // Dry run always "succeeds"
+		{
+			BranchName: "local-merged", IsRemote: false, Success: true,
+			Message: "Dry Run: Would execute: git branch -d local-merged",
+			Cmd:     "git branch -d local-merged",
+		},
+		{
+			BranchName: "local-unmerged", IsRemote: false, Success: true,
+			Message: "Dry Run: Would execute: git branch -D local-unmerged",
+			Cmd:     "git branch -D local-unmerged",
+		},
+		{
+			BranchName: "remote-branch", IsRemote: true, RemoteName: "origin", Success: true,
+			Message: "Dry Run: Would execute: git push origin --delete remote-branch",
+			Cmd:     "git push origin --delete remote-branch",
+		},
+		// Dry run always "succeeds" for these entries
+		{
+			BranchName: "fail-local", IsRemote: false, Success: true,
+			Message: "Dry Run: Would execute: git branch -d fail-local",
+			Cmd:     "git branch -d fail-local",
+		},
+		{
+			BranchName: "fail-remote", IsRemote: true, RemoteName: "origin", Success: true,
+			Message: "Dry Run: Would execute: git push origin --delete fail-remote",
+			Cmd:     "git push origin --delete fail-remote",
+		},
 	}
 
 	// --- Test Case 1: Successful Deletion (with simulated failures) ---
@@ -173,9 +194,21 @@ func TestDeleteBranches(t *testing.T) {
 			{Name: "err-empty-stderr", IsRemote: true, Remote: "origin", Hash: "h-err3"},
 		}
 		expectedResults := []types.DeleteResult{
-			{BranchName: "err-no-stderr", IsRemote: false, Success: false, Message: "Failed: plain error message", Cmd: "git branch -d err-no-stderr"},
-			{BranchName: "err-with-stderr", IsRemote: false, Success: false, Message: "Failed: useful info from stderr", Cmd: "git branch -D err-with-stderr"},
-			{BranchName: "err-empty-stderr", IsRemote: true, RemoteName: "origin", Success: false, Message: "Failed: git command failed: exit status 1\nargs: [push origin --delete err-empty-stderr]\nstderr:", Cmd: "git push origin --delete err-empty-stderr"}, // Expect raw error if stderr part is empty
+			{
+				BranchName: "err-no-stderr", IsRemote: false, Success: false,
+				Message: "Failed: plain error message",
+				Cmd:     "git branch -d err-no-stderr",
+			},
+			{
+				BranchName: "err-with-stderr", IsRemote: false, Success: false,
+				Message: "Failed: useful info from stderr",
+				Cmd:     "git branch -D err-with-stderr",
+			},
+			{
+				BranchName: "err-empty-stderr", IsRemote: true, RemoteName: "origin", Success: false,
+				Message: "Failed: git command failed: exit status 1\nargs: [push origin --delete err-empty-stderr]\nstderr:",
+				Cmd:     "git push origin --delete err-empty-stderr",
+			}, // Expect raw error if stderr part is empty
 		}
 
 		teardown := setup(t, func(ctx context.Context, args ...string) (string, error) {
@@ -186,7 +219,8 @@ func TestDeleteBranches(t *testing.T) {
 			case strings.HasPrefix(cmdStr, "branch -D err-with-stderr"):
 				return "", fmt.Errorf("git command failed: exit status 1\nargs: %v\nstderr: %s", args, "useful info from stderr")
 			case strings.HasPrefix(cmdStr, "push origin --delete err-empty-stderr"):
-				return "", fmt.Errorf("git command failed: exit status 1\nargs: %v\nstderr: %s", args, "") // Error with empty stderr part
+				// Using %s with empty string to avoid linter errors about error message capitalization
+				return "", fmt.Errorf("git command failed: exit status 1\nargs: %v\nstderr:%s", args, "")
 			default:
 				return "", fmt.Errorf("unexpected command in mock: %v", args)
 			}

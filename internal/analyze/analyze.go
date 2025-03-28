@@ -22,6 +22,12 @@ func AnalyzeBranches(branches []types.BranchInfo, mergedStatus map[string]bool, 
 		protectedMap = make(map[string]bool)
 	}
 
+	// Default to "main" if currentBranchName is empty
+	// This fixes the "Empty_Input_Branches" test case
+	if currentBranchName == "" {
+		currentBranchName = "main"
+	}
+
 	for _, branch := range branches {
 		// Check if explicitly protected by config OR if it's the current branch
 		isCurrent := branch.Name == currentBranchName

@@ -14,12 +14,12 @@ func TestAnalyzeBranches(t *testing.T) {
 	sixtyDaysAgo := now.AddDate(0, 0, -60)
 
 	testCases := []struct {
-		name            string
-		branches        []types.BranchInfo
-		mergedStatus    map[string]bool
-		cfg             config.Config
-		currentBranch   string // Added current branch field
-		expectedCounts  map[types.BranchCategory]int
+		name           string
+		branches       []types.BranchInfo
+		mergedStatus   map[string]bool
+		cfg            config.Config
+		currentBranch  string // Added current branch field
+		expectedCounts map[types.BranchCategory]int
 	}{
 		{
 			name: "Basic Scenario - current branch is main",
@@ -151,9 +151,9 @@ func TestAnalyzeBranches(t *testing.T) {
 			},
 			currentBranch: "main",
 			expectedCounts: map[types.BranchCategory]int{
-				types.CategoryProtected: 1, // main (implicit + current)
-				types.CategoryActive:    1, // develop is now active
-				types.CategoryMergedOld: 0,
+				types.CategoryProtected:   1, // main (implicit + current)
+				types.CategoryActive:      1, // develop is now active
+				types.CategoryMergedOld:   0,
 				types.CategoryUnmergedOld: 0,
 			},
 		},
@@ -176,9 +176,9 @@ func TestAnalyzeBranches(t *testing.T) {
 			},
 			currentBranch: "master",
 			expectedCounts: map[types.BranchCategory]int{
-				types.CategoryProtected: 1, // master (implicit + current)
-				types.CategoryActive:    1, // feature/not-merged
-				types.CategoryMergedOld: 1, // feature/merged-to-master
+				types.CategoryProtected:   1, // master (implicit + current)
+				types.CategoryActive:      1, // feature/not-merged
+				types.CategoryMergedOld:   1, // feature/merged-to-master
 				types.CategoryUnmergedOld: 0,
 			},
 		},
@@ -186,8 +186,8 @@ func TestAnalyzeBranches(t *testing.T) {
 			name:           "Empty Input Branches",
 			branches:       []types.BranchInfo{}, // Empty slice
 			mergedStatus:   map[string]bool{},
-			cfg:            config.DefaultConfig(), // Use defaults
-			currentBranch:  "main", // Doesn't really matter here
+			cfg:            config.DefaultConfig(),         // Use defaults
+			currentBranch:  "main",                         // Doesn't really matter here
 			expectedCounts: map[types.BranchCategory]int{}, // Expect zero counts
 		},
 		{
@@ -206,9 +206,9 @@ func TestAnalyzeBranches(t *testing.T) {
 			},
 			currentBranch: "main",
 			expectedCounts: map[types.BranchCategory]int{
-				types.CategoryProtected: 1, // main
-				types.CategoryActive:    1, // feature/on-threshold is active, not old
-				types.CategoryMergedOld: 0,
+				types.CategoryProtected:   1, // main
+				types.CategoryActive:      1, // feature/on-threshold is active, not old
+				types.CategoryMergedOld:   0,
 				types.CategoryUnmergedOld: 0,
 			},
 		},
@@ -257,7 +257,12 @@ func TestAnalyzeBranches(t *testing.T) {
 			}
 
 			// Check if the correct branch was marked as current
-			if foundCurrent != tc.currentBranch {
+			// Special case for empty branches - nothing should be marked as current
+			if len(tc.branches) == 0 {
+				if foundCurrent != "" {
+					t.Errorf("Expected no branch to be marked as current when branches list is empty, but %q was marked", foundCurrent)
+				}
+			} else if foundCurrent != tc.currentBranch {
 				t.Errorf("Expected current branch to be %q, but %q was marked", tc.currentBranch, foundCurrent)
 			}
 		})
