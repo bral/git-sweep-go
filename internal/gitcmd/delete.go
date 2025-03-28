@@ -69,7 +69,7 @@ func DeleteBranches(ctx context.Context, branches []BranchToDelete, dryRun bool)
 			errMsg := err.Error()
 			if strings.Contains(errMsg, "stderr:") {
 				parts := strings.SplitN(errMsg, "stderr:", 2)
-				if len(parts) > 1 {
+				if len(parts) > 1 && strings.TrimSpace(parts[1]) != "" {
 					errMsg = strings.TrimSpace(parts[1])
 				}
 			}

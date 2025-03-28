@@ -26,6 +26,7 @@ type AnalyzedBranch struct {
 	IsMerged       bool
 	IsOldByAge     bool
 	IsProtected    bool
+	IsCurrent      bool // Added flag for current branch
 	Category       BranchCategory
 }
 
