@@ -1,0 +1,114 @@
+# .golangci.yml
+version: "2"
+
+run:
+  timeout: 5m
+  go: "1.21"
+  tests: true
+  build-tags: []
+  allow-parallel-runners: true
+
+linters:
+  default: none
+  enable:
+    # Core linters
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - bodyclose
+    - durationcheck
+    - goconst
+    - gocritic
+    - gocyclo
+    - lll
+    - misspell
+    - prealloc
+    - predeclared
+    - revive
+    - unconvert
+    - unparam
+    - whitespace
+    # Additional linters
+    - asasalint
+    - bidichk
+    - contextcheck
+    - decorder
+    - errorlint
+    - exhaustive
+    - forbidigo
+    - forcetypeassert
+    - gocheckcompilerdirectives
+    - makezero
+    - nilnil
+    - tparallel
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+    - gofumpt
+
+linters-settings:
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment
+      - shadow
+
+  gocyclo:
+    min-complexity: 15
+
+  goconst:
+    min-len: 2
+    min-occurrences: 3
+
+  lll:
+    line-length: 120
+
+  revive:
+    rules:
+      - name: exported
+        severity: warning
+        disabled: false
+      - name: package-comments
+        severity: warning
+      - name: error-naming
+        severity: warning
+      - name: context-as-argument
+        severity: warning
+
+  errorlint:
+    errorf: true
+    asserts: true
+    comparison: true
+
+  exhaustive:
+    check-generated: false
+    default-signifies-exhaustive: true
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  fix: true
+
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - errcheck
+        - dupl
+        - gosec
+        - goconst
+    - path: pkg/logger/
+      linters:
+        - lll
+
+    # Exclude known false positives
+    - text: "G104:"
+      linters:
+        - gosec
+    - text: "G204:"
+      linters:
+        - gosec
