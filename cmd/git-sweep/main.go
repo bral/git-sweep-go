@@ -63,7 +63,6 @@ for _, branch := range displayableBranches {
 	}
 	if branch.Remote != "" {
 		fmt.Printf("  - Delete remote '%s/%s'\n", branch.Remote, branch.Name)
-		hasRemote = true
 			hasRemote = true
 		}
 	}
