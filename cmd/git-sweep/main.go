@@ -18,6 +18,51 @@ import (
 
 // Global config variable to be used by the command logic
 var appConfig config.Config
+var isDebug bool // Global variable to store debug flag state
+
+// logDebugf prints only if the --debug flag is set.
+func logDebugf(format string, a ...any) {
+	if isDebug {
+		fmt.Printf(format, a...)
+	}
+}
+
+// logDebugln prints only if the --debug flag is set.
+func logDebugln(a ...any) {
+	if isDebug {
+		fmt.Println(a...)
+	}
+}
+
+// printDryRunActions prints the actions that would be taken for the candidates.
+func printDryRunActions(candidates []types.AnalyzedBranch) {
+	fmt.Println("[Dry Run] Proposed Actions:")
+	fmt.Println("\nLocal Deletions:")
+	hasLocal := false
+	for _, branch := range candidates {
+		// Assume all candidates would be selected in a real run for dry-run output
+		delType := "-d (safe)"
+		if !branch.IsMerged {
+			delType = "-D (force)"
+		}
+		fmt.Printf("  - Delete '%s' (%s)\n", branch.Name, delType)
+		hasLocal = true
+	}
+	if !hasLocal { fmt.Println("  (None)") }
+
+	fmt.Println("\nRemote Deletions:")
+	hasRemote := false
+	for _, branch := range candidates {
+		// Assume remote is selected if local is and remote exists
+		if branch.Remote != "" {
+			fmt.Printf("  - Delete remote '%s/%s'\n", branch.Remote, branch.Name)
+			hasRemote = true
+		}
+	}
+	if !hasRemote { fmt.Println("  (None)") }
+	fmt.Println("\n(Dry run complete, no changes made)")
+}
+
 
 var rootCmd = &cobra.Command{
 	Use:     "git-sweep",
@@ -27,9 +72,13 @@ var rootCmd = &cobra.Command{
 merged or haven't been updated recently. It presents these branches
 in an interactive terminal UI, allowing you to select and delete them
 safely (both locally and optionally on the remote).`,
-	// Use PersistentPreRunE to load config before the main Run function
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		// Get debug flag value early
+		isDebug, _ = cmd.Flags().GetBool("debug")
+
+		logDebugln("Starting PersistentPreRunE...")
 		customConfigPath, _ := cmd.Flags().GetString("config")
+		logDebugf("Custom config path flag: %q\n", customConfigPath)
 
 		var err error
 		appConfig, err = config.LoadConfig(customConfigPath)
@@ -56,16 +105,22 @@ safely (both locally and optionally on the remote).`,
 			} else {
 				return fmt.Errorf("failed to load configuration: %w", err)
 			}
+		} else {
+			logDebugln("Configuration loaded successfully.")
 		}
 
 		// Apply command-line overrides AFTER loading/setup
+		logDebugln("Applying flag overrides...")
 		if ageOverride, _ := cmd.Flags().GetInt("age"); ageOverride > 0 {
+			logDebugf("Overriding AgeDays with flag value: %d\n", ageOverride)
 			appConfig.AgeDays = ageOverride
 		}
 		if mainOverride, _ := cmd.Flags().GetString("primary-main"); mainOverride != "" {
+			logDebugf("Overriding PrimaryMainBranch with flag value: %q\n", mainOverride)
 			appConfig.PrimaryMainBranch = mainOverride
 		}
 		if protectedOverride, _ := cmd.Flags().GetStringSlice("protected"); len(protectedOverride) > 0 {
+			logDebugf("Overriding ProtectedBranches with flag value: %v\n", protectedOverride)
 			appConfig.ProtectedBranches = protectedOverride
 			appConfig.ProtectedBranchMap = make(map[string]bool)
 			for _, branch := range appConfig.ProtectedBranches {
@@ -74,25 +129,25 @@ safely (both locally and optionally on the remote).`,
 		}
 
 		if appConfig.ProtectedBranchMap == nil {
+			logDebugln("ProtectedBranchMap was nil, initializing.")
 			appConfig.ProtectedBranchMap = make(map[string]bool)
 			for _, branch := range appConfig.ProtectedBranches {
 				appConfig.ProtectedBranchMap[branch] = true
 			}
 		}
-
+		logDebugln("Finished PersistentPreRunE.")
 		return nil // No error from pre-run
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		// Config is now loaded into appConfig via PersistentPreRunE
-		fmt.Printf("Configuration loaded. AgeDays: %d, Main: %s, Protected: %v\n",
+		logDebugf("Configuration loaded. AgeDays: %d, Main: %s, Protected: %v\n",
 			appConfig.AgeDays, appConfig.PrimaryMainBranch, appConfig.ProtectedBranches)
-		fmt.Println("\nExecuting git-sweep main logic...")
+		logDebugln("\nExecuting git-sweep main logic...")
 
 		// --- Core Workflow Steps ---
+		ctx := context.Background() // Use background context for now
 
 		// 2. Check Environment
-		fmt.Println("Checking environment...")
-		ctx := context.Background() // Use background context for now
+		logDebugln("Checking environment...")
 		inGitRepo, err := gitcmd.IsInGitRepo(ctx)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error checking Git repository status: %v\n", err)
@@ -102,21 +157,21 @@ safely (both locally and optionally on the remote).`,
 			fmt.Fprintln(os.Stderr, "Error: Not inside a Git repository.")
 			os.Exit(1)
 		}
-		fmt.Println("-> Environment check passed.")
+		logDebugln("-> Environment check passed.")
 
 		// 3. Fetch Remote State
 		remoteName, _ := cmd.Flags().GetString("remote")
-		fmt.Printf("Fetching remote state for '%s'...\n", remoteName)
+		logDebugf("Fetching remote state for '%s'...\n", remoteName)
 		err = gitcmd.FetchAndPrune(ctx, remoteName)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to fetch remote state for '%s': %v\n", remoteName, err)
 		} else {
-			fmt.Println("-> Remote fetch complete.")
+			logDebugln("-> Remote fetch complete.")
 		}
 
 
 		// 4. Gather Branch Data
-		fmt.Println("Gathering branch data...")
+		logDebugln("Gathering branch data...")
 		allBranches, err := gitcmd.GetAllLocalBranchInfo(ctx)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error gathering local branch info: %v\n", err)
@@ -139,18 +194,25 @@ safely (both locally and optionally on the remote).`,
 			fmt.Fprintf(os.Stderr, "Error determining merged branches against hash %s: %v\n", mainHash, err)
 			os.Exit(1)
 		}
-		fmt.Printf("-> Found %d local branches. Primary main branch '%s' hash: %s. Found %d merged branches.\n",
+		logDebugf("-> Found %d local branches. Primary main branch '%s' hash: %s. Found %d merged branches.\n",
 			len(allBranches), appConfig.PrimaryMainBranch, mainHash, len(mergedBranchesMap))
 
 
 		// 5. Analyze Branches
-		fmt.Println("Analyzing branches...")
-		analyzedBranches := analyze.AnalyzeBranches(allBranches, mergedBranchesMap, appConfig)
-		fmt.Println("-> Branch analysis complete.")
+		logDebugln("Analyzing branches...")
+		currentBranch, err := gitcmd.GetCurrentBranchName(ctx)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Could not determine current branch: %v\n", err)
+			currentBranch = ""
+		} else if currentBranch != "" {
+			logDebugf("-> Current branch detected: %s (will be protected)\n", currentBranch)
+		}
+		analyzedBranches := analyze.AnalyzeBranches(allBranches, mergedBranchesMap, appConfig, currentBranch)
+		logDebugln("-> Branch analysis complete.")
 
 
 		// 6. Filter Candidates
-		fmt.Println("Filtering candidates...")
+		logDebugln("Filtering candidates...")
 		candidates := make([]types.AnalyzedBranch, 0)
 		for _, branch := range analyzedBranches {
 			if branch.Category == types.CategoryMergedOld || branch.Category == types.CategoryUnmergedOld {
@@ -162,28 +224,29 @@ safely (both locally and optionally on the remote).`,
 			fmt.Println("-> No candidate branches found for cleanup. Exiting.")
 			os.Exit(0)
 		}
-		fmt.Printf("-> Found %d candidate branches for cleanup.\n", len(candidates))
+		logDebugf("-> Found %d candidate branches for cleanup.\n", len(candidates))
 
+		// Check for Dry Run *before* launching TUI
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			printDryRunActions(candidates)
+			os.Exit(0) // Exit after printing dry run actions
+		}
 
-		// 7. Launch Interactive TUI
-		fmt.Println("Launching TUI...")
-		dryRun, _ := cmd.Flags().GetBool("dry-run") // Get dry-run flag
-		// Pass context, candidates, and dryRun flag to the TUI model
-		initialModel := tui.InitialModel(ctx, candidates, dryRun)
+		// 7. Launch Interactive TUI (only if not dry run)
+		logDebugln("Launching TUI...")
+		initialModel := tui.InitialModel(ctx, candidates, dryRun) // dryRun will be false here
 		p := tea.NewProgram(initialModel)
 
-		// Run the TUI. It will handle confirmation, deletion (via command), and results display internally.
 		if _, err := p.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error running TUI: %v\n", err)
 			os.Exit(1)
 		}
 
-		// 8. Execute Deletions (Now handled within TUI via tea.Cmd)
+		// 8. Execute Deletions (Handled within TUI via tea.Cmd)
+		// 9. Display Results (Handled within TUI)
 
-
-		// 9. Display Results (Now handled within TUI)
-
-		fmt.Println("\nExiting git-sweep.") // Final message after TUI finishes
+		logDebugln("\nExiting git-sweep.") // Final message only in debug
 
 	},
 }
@@ -196,6 +259,7 @@ func main() {
 
 func init() {
 	// Define flags based on PROJECT_PLAN.md Section 10
+	rootCmd.PersistentFlags().Bool("debug", false, "Enable debug logging.")
 	rootCmd.PersistentFlags().Bool("dry-run", false, "Analyze and preview actions, but do not delete.")
 	rootCmd.PersistentFlags().StringP("config", "c", "", "Path to custom configuration file (default: ~/.config/git-sweep/config.toml).")
 	rootCmd.PersistentFlags().StringP("remote", "r", "origin", "Specify the remote repository to fetch from and consider for remote deletions.")

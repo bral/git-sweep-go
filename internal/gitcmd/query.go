@@ -148,3 +148,39 @@ func IsInGitRepo(ctx context.Context) (bool, error) {
 	// If the command succeeds, it outputs "true".
 	return output == "true", nil
 }
+
+// GetCurrentBranchName retrieves the name of the currently checked-out branch.
+// It returns an empty string if HEAD is detached or if an error occurs.
+func GetCurrentBranchName(ctx context.Context) (string, error) {
+	// `git branch --show-current` is simpler and preferred if available (Git 2.22+)
+	// `git rev-parse --abbrev-ref HEAD` is a fallback that works on older versions
+	// but returns "HEAD" if detached.
+	args := []string{"branch", "--show-current"}
+	branchName, err := RunGitCommand(ctx, args...)
+
+	if err != nil {
+		// If `git branch --show-current` fails, try the fallback
+		// Check if the error indicates the command is unknown (older Git)
+		if strings.Contains(err.Error(), "unknown switch `show-current'") || strings.Contains(err.Error(), "unknown option `show-current'") {
+			args = []string{"rev-parse", "--abbrev-ref", "HEAD"}
+			branchName, err = RunGitCommand(ctx, args...)
+			if err != nil {
+				return "", fmt.Errorf("failed to get current branch using fallback rev-parse: %w", err)
+			}
+			// If HEAD is detached, rev-parse returns "HEAD"
+			if branchName == "HEAD" {
+				return "", nil // Treat detached HEAD as no current branch for our purposes
+			}
+			return branchName, nil
+		}
+		// Other error with `git branch --show-current`
+		return "", fmt.Errorf("failed to get current branch using branch --show-current: %w", err)
+	}
+
+	// Handle potential empty output from `git branch --show-current` (e.g., detached HEAD in some cases)
+	if branchName == "" {
+		return "", nil
+	}
+
+	return branchName, nil
+}
