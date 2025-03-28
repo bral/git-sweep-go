@@ -4,11 +4,12 @@ This document tracks the progress of the `git-sweep-go` implementation based on 
 
 ## Current Status
 
-- **Overall Progress:** Phase 1, 2, 3 Complete. Phase 4 (Unit Testing) Complete.
-- **Current Focus:** Phase 4 (Integration Testing) / Phase 5 (Documentation)
+- **Overall Progress:** Core implementation complete, Unit tests expanded, Integration tests expanded, TUI usability improved, Initial Docs/Release setup complete.
+- **Current Focus:** Addressing remaining items from code review (`IMPROVEMENTS.md`).
 - **Next Steps:**
-  - Plan integration tests for CLI commands using test repositories.
-  - Update README.md with usage instructions.
+  - Implement Improvement #2: Refined Error Handling & Logging.
+  - Implement Improvement #3: Configuration Validation.
+  - Implement Improvement #5: Git Interaction Robustness.
 - **Blockers:** None
 
 ## Completed Tasks
@@ -30,18 +31,37 @@ This document tracks the progress of the `git-sweep-go` implementation based on 
   - [x] Implement deletion logic (`internal/gitcmd/delete.go`).
   - [x] Execute Deletions via TUI command (Step 8 triggered by TUI).
   - [x] Display Results via TUI message/view (Step 9 handled by TUI).
+  - [x] Add `--quick-status` flag and logic.
+  - [x] Add current branch indicator/label to TUI.
+  - [x] Refactor TUI to show all non-protected branches (selectable).
+  - [x] Add visual separators between TUI branch groups.
+  - [x] Add selection summary count to TUI footer.
+  - [x] Add basic terminal resize handling to TUI model.
 - [x] **Phase 3: Configuration**
   - [x] Implement loading configuration from file (`internal/config/config.go`).
   - [x] Define configuration struct (`internal/config/config.go`).
   - [x] Implement first-run setup (`internal/config/setup.go`).
   - [x] Integrate config loading/setup into main CLI (`cmd/git-sweep/main.go`).
-- [x] **Phase 4: Testing (Unit)**
-  - [x] Unit tests for `internal/analyze`.
+- [x] **Phase 4: Testing (Unit & Basic Integration)**
+  - [x] Unit tests for `internal/analyze` (expanded).
   - [x] Unit tests for `internal/config`.
-  - [x] Unit tests for `internal/gitcmd` (parsers, deletion).
-  - [ ] Integration tests.
+  - [x] Unit tests for `internal/gitcmd` (parsers, deletion, fetch, query - expanded).
+  - [x] Unit tests for `internal/tui` (basic model updates).
+  - [x] Basic integration test setup (`cmd/git-sweep/main_integration_test.go`).
+  - [x] Basic `--dry-run` integration test case.
+  - [x] Add integration tests for `--quick-status` and flag overrides.
+  - [ ] Add more integration tests (e.g., non-dry-run, remotes).
+- [x] **Phase 5: Release & Documentation**
+  - [x] Add `LICENSE` file (MIT).
+  - [x] Add `CONTRIBUTING.md` file.
+  - [x] Update `README.md` with usage, installation (`go install`, build), config, flags.
+  - [x] Set up GoReleaser (`.goreleaser.yaml`).
+  - [x] Configure build-time version injection.
+  - [x] Update `README.md` with release download instructions.
+  - [x] Create initial Git tags (`v0.1.0`, `v0.1.1`, `v0.1.2`, `v0.1.3`).
+  - [x] Perform initial GoReleaser release (`v0.1.3`).
 
 ## Notes
 
 - Refer to `PROJECT_PLAN.md` for the detailed task breakdown and milestones.
-- TUI could be further refined (e.g., more robust error handling, layout adjustments).
+- TUI could be further refined after current layout change (e.g., more robust error handling).

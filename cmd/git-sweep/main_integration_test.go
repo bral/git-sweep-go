@@ -196,5 +196,159 @@ protected_branches = ["protected-config"]
 		t.Errorf("Expected '[Dry Run]' indicator in output, output:\n%s", output)
 	}
 
-	// TODO: Add more scenarios: different flags, remote branches, current branch protection etc.
+	// TODO: Add more scenarios: actual deletion (non-dry-run), remote branches, current branch protection etc.
+}
+
+// TestIntegrationQuickStatus tests the non-interactive quick status output.
+func TestIntegrationQuickStatus(t *testing.T) {
+	repoPath, cleanup := setupTestRepo(t)
+	defer cleanup()
+
+	now := time.Now()
+	oldDate := now.AddDate(0, 0, -100) // 100 days ago
+	recentDate := now.AddDate(0, 0, -10) // 10 days ago
+
+	// Create branches (same as dry run test)
+	createBranchAndCommit(t, repoPath, "merged-recent", "feat: merged recent", recentDate)
+	createBranchAndCommit(t, repoPath, "merged-old", "feat: merged old", oldDate)
+	createBranchAndCommit(t, repoPath, "unmerged-recent", "feat: unmerged recent", recentDate)
+	createBranchAndCommit(t, repoPath, "unmerged-old", "feat: unmerged old", oldDate)
+	createBranchAndCommit(t, repoPath, "protected-config", "feat: protected", oldDate)
+
+	// Merge some branches
+	runCmd(t, repoPath, "git", "merge", "--no-ff", "merged-recent", "-m", "Merge merged-recent")
+	runCmd(t, repoPath, "git", "merge", "--no-ff", "merged-old", "-m", "Merge merged-old")
+
+	// Create a test config file (same as dry run test)
+	configContent := `
+age_days = 90
+primary_main_branch = "main"
+protected_branches = ["protected-config"]
+`
+	configPath := filepath.Join(repoPath, ".git-sweep-test.toml")
+	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	// Run git-sweep with --quick-status and the test config
+	cmd := exec.Command(binaryPath, "--quick-status", "--config", configPath)
+	cmd.Dir = repoPath // Run command inside the test repo
+	outputBytes, err := cmd.CombinedOutput()
+	output := string(outputBytes)
+
+	if err != nil {
+		t.Fatalf("git-sweep --quick-status failed unexpectedly:\nOutput:\n%s\nError: %v", output, err)
+	}
+
+	// Expected output based on config (age=90):
+	// Merged: merged-recent, merged-old (2)
+	// Unmerged Old: unmerged-old (1)
+	// Protected: main, protected-config
+	// Active: unmerged-recent
+	// Candidates = Merged + Unmerged Old = 2 + 1 = 3
+	// Expected counts: 2 merged, 1 unmerged old.
+	expectedOutput := "[git-sweep] Candidates: 2 merged, 1 unmerged old."
+	if !strings.Contains(output, expectedOutput) {
+		t.Errorf("Expected quick status output to contain %q, got:\n%s", expectedOutput, output)
+	}
+
+	// Test case with no candidates
+	t.Run("No Candidates", func(t *testing.T) {
+		repoPath2, cleanup2 := setupTestRepo(t)
+		defer cleanup2()
+		// Only main branch exists
+
+		// Run git-sweep with --quick-status
+		cmd2 := exec.Command(binaryPath, "--quick-status") // Use default config
+		cmd2.Dir = repoPath2
+		outputBytes2, err2 := cmd2.CombinedOutput()
+		output2 := string(outputBytes2)
+		if err2 != nil {
+			t.Fatalf("git-sweep --quick-status (no candidates) failed unexpectedly:\nOutput:\n%s\nError: %v", output2, err2)
+		}
+		expectedOutput2 := "[git-sweep] No candidate branches found."
+		if !strings.Contains(output2, expectedOutput2) {
+			t.Errorf("Expected quick status output for no candidates to contain %q, got:\n%s", expectedOutput2, output2)
+		}
+	})
+}
+
+// TestIntegrationFlagOverrides tests overriding config settings via flags.
+func TestIntegrationFlagOverrides(t *testing.T) {
+	repoPath, cleanup := setupTestRepo(t)
+	defer cleanup()
+
+	now := time.Now()
+	oldDate := now.AddDate(0, 0, -100) // 100 days ago (Old for age=90)
+	midDate := now.AddDate(0, 0, -60)  // 60 days ago (Old for age=30, Not for age=90)
+	recentDate := now.AddDate(0, 0, -10) // 10 days ago (Never old)
+
+	// Create branches
+	createBranchAndCommit(t, repoPath, "merged-old", "feat: merged old", oldDate)
+	createBranchAndCommit(t, repoPath, "merged-mid", "feat: merged mid", midDate)
+	createBranchAndCommit(t, repoPath, "unmerged-old", "feat: unmerged old", oldDate)
+	createBranchAndCommit(t, repoPath, "unmerged-mid", "feat: unmerged mid", midDate)
+	createBranchAndCommit(t, repoPath, "unmerged-recent", "feat: unmerged recent", recentDate)
+	createBranchAndCommit(t, repoPath, "protect-me", "feat: protect flag", oldDate)
+	createBranchAndCommit(t, repoPath, "master", "feat: master branch", now) // Create a 'master' branch
+
+	// Merge some branches into main
+	runCmd(t, repoPath, "git", "merge", "--no-ff", "merged-old", "-m", "Merge merged-old")
+	runCmd(t, repoPath, "git", "merge", "--no-ff", "merged-mid", "-m", "Merge merged-mid")
+
+	// Merge one branch into master (but not main)
+	runCmd(t, repoPath, "git", "checkout", "master")
+	runCmd(t, repoPath, "git", "merge", "--no-ff", "unmerged-mid", "-m", "Merge unmerged-mid into master")
+	runCmd(t, repoPath, "git", "checkout", "main")
+
+
+	// Run git-sweep with --dry-run and flag overrides
+	// Override age to 30, primary to master, protect protect-me
+	cmd := exec.Command(binaryPath,
+		"--dry-run",
+		"--age", "30",
+		"--primary-main", "master",
+		"--protected", "protect-me",
+		// No --config flag, rely on defaults potentially modified by flags
+	)
+	cmd.Dir = repoPath // Run command inside the test repo
+	outputBytes, err := cmd.CombinedOutput()
+	output := string(outputBytes)
+
+	if err != nil {
+		t.Fatalf("git-sweep --dry-run with flags failed unexpectedly:\nOutput:\n%s\nError: %v", output, err)
+	}
+
+	// --- Assertions based on overrides (age=30, primary=master, protected=protect-me) ---
+
+	// Merged into master? Only unmerged-mid was.
+	// Merged branches (relative to master): unmerged-mid
+	// Unmerged branches (relative to master): main, merged-old, merged-mid, unmerged-old, unmerged-recent, protect-me
+
+	// Age > 30 days? oldDate (100), midDate (60) are old. recentDate (10) is not.
+	// Old branches: merged-old, unmerged-old, protect-me, merged-mid, unmerged-mid
+
+	// Candidates = (Merged into master) OR (Unmerged from master AND Old)
+	// Candidates = (unmerged-mid) OR (main[new], merged-old[old], merged-mid[old], unmerged-old[old], unmerged-recent[new], protect-me[old])
+	// Candidates = unmerged-mid, merged-old, merged-mid, unmerged-old, protect-me
+
+	// Protected = master (primary), protect-me (flag), main (current checkout)
+
+	// Final Displayable Candidates = Candidates - Protected
+	// Final Displayable Candidates = (unmerged-mid, merged-old, merged-mid, unmerged-old, protect-me) - (master, protect-me, main)
+	// Final Displayable Candidates = unmerged-mid, merged-old, merged-mid, unmerged-old
+
+	// Check output
+	if !strings.Contains(output, "unmerged-mid") { t.Errorf("Expected 'unmerged-mid' (merged to master) in output, got:\n%s", output) }
+	if !strings.Contains(output, "merged-old") { t.Errorf("Expected 'merged-old' (unmerged from master, old) in output, got:\n%s", output) }
+	if !strings.Contains(output, "merged-mid") { t.Errorf("Expected 'merged-mid' (unmerged from master, old) in output, got:\n%s", output) }
+	if !strings.Contains(output, "unmerged-old") { t.Errorf("Expected 'unmerged-old' (unmerged from master, old) in output, got:\n%s", output) }
+
+	// Check non-candidates
+	if strings.Contains(output, "unmerged-recent") { t.Errorf("Did not expect 'unmerged-recent' (not old) in output, got:\n%s", output) }
+	if strings.Contains(output, "protect-me") { t.Errorf("Did not expect 'protect-me' (protected by flag) in output, got:\n%s", output) }
+	if strings.Contains(output, "master") { t.Errorf("Did not expect 'master' (primary branch) in output, got:\n%s", output) }
+	if strings.Contains(output, "main") { t.Errorf("Did not expect 'main' (current branch) in output, got:\n%s", output) }
+
 }

@@ -110,7 +110,108 @@ func TestAnalyzeBranches(t *testing.T) {
 				types.CategoryUnmergedOld: 0, // dev/stale is now protected
 			},
 		},
-		// TODO: Add more test cases: different age thresholds, no protected, different main branch name, empty input etc.
+		{
+			name: "Different Age Threshold (30 days)",
+			branches: []types.BranchInfo{
+				{Name: "main", LastCommitDate: now, CommitHash: "mainHash"},
+				{Name: "feature/new", LastCommitDate: sixtyDaysAgo, CommitHash: "featNewHash"}, // Now old
+				{Name: "feature/old-merged", LastCommitDate: ninetyDaysAgo, CommitHash: "featOldMergedHash"},
+				{Name: "dev/stale", LastCommitDate: ninetyDaysAgo, CommitHash: "staleHash"}, // Still old
+			},
+			mergedStatus: map[string]bool{
+				"feature/old-merged": true,
+				"main":               true,
+			},
+			cfg: config.Config{
+				AgeDays:            30, // Lower threshold
+				PrimaryMainBranch:  "main",
+				ProtectedBranches:  []string{}, // No protected branches
+				ProtectedBranchMap: map[string]bool{},
+			},
+			currentBranch: "main",
+			expectedCounts: map[types.BranchCategory]int{
+				types.CategoryProtected:   1, // main (implicit + current)
+				types.CategoryActive:      0, // feature/new is now old
+				types.CategoryMergedOld:   1, // feature/old-merged
+				types.CategoryUnmergedOld: 2, // feature/new, dev/stale
+			},
+		},
+		{
+			name: "No Protected Branches Configured",
+			branches: []types.BranchInfo{
+				{Name: "main", LastCommitDate: now, CommitHash: "mainHash"},
+				{Name: "develop", LastCommitDate: sixtyDaysAgo, CommitHash: "developHash"}, // No longer protected by config
+			},
+			mergedStatus: map[string]bool{"main": true},
+			cfg: config.Config{
+				AgeDays:            90,
+				PrimaryMainBranch:  "main",
+				ProtectedBranches:  []string{}, // Empty list
+				ProtectedBranchMap: map[string]bool{},
+			},
+			currentBranch: "main",
+			expectedCounts: map[types.BranchCategory]int{
+				types.CategoryProtected: 1, // main (implicit + current)
+				types.CategoryActive:    1, // develop is now active
+				types.CategoryMergedOld: 0,
+				types.CategoryUnmergedOld: 0,
+			},
+		},
+		{
+			name: "Different Primary Main Branch (master)",
+			branches: []types.BranchInfo{
+				{Name: "master", LastCommitDate: now, CommitHash: "masterHash"},
+				{Name: "feature/merged-to-master", LastCommitDate: sixtyDaysAgo, CommitHash: "featMasterHash"},
+				{Name: "feature/not-merged", LastCommitDate: sixtyDaysAgo, CommitHash: "featNotMergedHash"},
+			},
+			mergedStatus: map[string]bool{ // Merged into master
+				"master":                   true,
+				"feature/merged-to-master": true,
+			},
+			cfg: config.Config{
+				AgeDays:            90,
+				PrimaryMainBranch:  "master", // Using master
+				ProtectedBranches:  []string{},
+				ProtectedBranchMap: map[string]bool{},
+			},
+			currentBranch: "master",
+			expectedCounts: map[types.BranchCategory]int{
+				types.CategoryProtected: 1, // master (implicit + current)
+				types.CategoryActive:    1, // feature/not-merged
+				types.CategoryMergedOld: 1, // feature/merged-to-master
+				types.CategoryUnmergedOld: 0,
+			},
+		},
+		{
+			name:           "Empty Input Branches",
+			branches:       []types.BranchInfo{}, // Empty slice
+			mergedStatus:   map[string]bool{},
+			cfg:            config.DefaultConfig(), // Use defaults
+			currentBranch:  "main", // Doesn't really matter here
+			expectedCounts: map[types.BranchCategory]int{}, // Expect zero counts
+		},
+		{
+			name: "Branch Exactly on Age Threshold",
+			branches: []types.BranchInfo{
+				{Name: "main", LastCommitDate: now, CommitHash: "mainHash"},
+				// This branch's age is exactly 90 days (using -90), so it should NOT be considered old
+				{Name: "feature/on-threshold", LastCommitDate: now.AddDate(0, 0, -90), CommitHash: "thresholdHash"},
+			},
+			mergedStatus: map[string]bool{"main": true},
+			cfg: config.Config{
+				AgeDays:            90,
+				PrimaryMainBranch:  "main",
+				ProtectedBranches:  []string{},
+				ProtectedBranchMap: map[string]bool{},
+			},
+			currentBranch: "main",
+			expectedCounts: map[types.BranchCategory]int{
+				types.CategoryProtected: 1, // main
+				types.CategoryActive:    1, // feature/on-threshold is active, not old
+				types.CategoryMergedOld: 0,
+				types.CategoryUnmergedOld: 0,
+			},
+		},
 	}
 
 	for _, tc := range testCases {
@@ -131,19 +232,33 @@ func TestAnalyzeBranches(t *testing.T) {
 			}
 
 			counts := make(map[types.BranchCategory]int)
+			foundCurrent := ""
 			for _, b := range analyzed {
 				counts[b.Category]++
+				if b.IsCurrent {
+					if foundCurrent != "" {
+						t.Errorf("Found multiple current branches: %s and %s", foundCurrent, b.Name)
+					}
+					foundCurrent = b.Name
+				}
 			}
 
+			// Check category counts
 			for category, expectedCount := range tc.expectedCounts {
 				if counts[category] != expectedCount {
 					t.Errorf("Expected %d branches in category %s, got %d", expectedCount, category, counts[category])
 				}
 			}
+			// Check if any unexpected categories appeared
 			for category, count := range counts {
 				if _, expected := tc.expectedCounts[category]; !expected && count > 0 {
 					t.Errorf("Got %d branches in unexpected category %s", count, category)
 				}
+			}
+
+			// Check if the correct branch was marked as current
+			if foundCurrent != tc.currentBranch {
+				t.Errorf("Expected current branch to be %q, but %q was marked", tc.currentBranch, foundCurrent)
 			}
 		})
 	}

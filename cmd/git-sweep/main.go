@@ -35,14 +35,15 @@ func logDebugln(a ...any) {
 	}
 }
 
-// printDryRunActions prints the actions that would be taken for actual candidates.
-func printDryRunActions(allAnalyzedBranches []types.AnalyzedBranch) {
-	fmt.Println("[Dry Run] Proposed Actions (Only showing candidates):")
+// printDryRunActions prints the actions that would be taken for selectable branches.
+func printDryRunActions(displayableBranches []types.AnalyzedBranch) {
+	fmt.Println("[Dry Run] Proposed Actions (Only showing selectable branches):")
 	fmt.Println("\nLocal Deletions:")
 	hasLocal := false
-	for _, branch := range allAnalyzedBranches {
-		// Only print actions for actual candidates
-		if !(branch.Category == types.CategoryMergedOld || branch.Category == types.CategoryUnmergedOld) {
+	for _, branch := range displayableBranches {
+		// Only print actions for selectable branches (which are all displayable ones now)
+		// This check is technically redundant if displayableBranches is filtered correctly, but keep for safety.
+		if !(branch.Category == types.CategoryActive || branch.Category == types.CategoryMergedOld || branch.Category == types.CategoryUnmergedOld) {
 			continue
 		}
 		delType := "-d (safe)"
@@ -53,21 +54,74 @@ func printDryRunActions(allAnalyzedBranches []types.AnalyzedBranch) {
 		hasLocal = true
 	}
 	if !hasLocal { fmt.Println("  (None)") }
-
-	fmt.Println("\nRemote Deletions:")
-	hasRemote := false
-	for _, branch := range allAnalyzedBranches {
-		// Only print actions for actual candidates with remotes
-		if !(branch.Category == types.CategoryMergedOld || branch.Category == types.CategoryUnmergedOld) {
-			continue
-		}
-		if branch.Remote != "" {
-			fmt.Printf("  - Delete remote '%s/%s'\n", branch.Remote, branch.Name)
+fmt.Println("\nRemote Deletions:")
+hasRemote := false
+for _, branch := range displayableBranches {
+	// Only print actions for selectable branches with remotes
+	if !(branch.Category == types.CategoryActive || branch.Category == types.CategoryMergedOld || branch.Category == types.CategoryUnmergedOld) {
+		continue
+	}
+	if branch.Remote != "" {
+		fmt.Printf("  - Delete remote '%s/%s'\n", branch.Remote, branch.Name)
+		hasRemote = true
 			hasRemote = true
 		}
 	}
 	if !hasRemote { fmt.Println("  (None)") }
 	fmt.Println("\n(Dry run complete, no changes made)")
+}
+
+// runQuickStatus performs a fast, non-interactive analysis and prints a summary.
+func runQuickStatus(ctx context.Context) {
+	logDebugln("Running quick status...")
+
+	// 1. Check Environment (Fast)
+	inGitRepo, err := gitcmd.IsInGitRepo(ctx)
+	if err != nil || !inGitRepo {
+		// Silently exit if not in a git repo or error occurs
+		return
+	}
+
+	// 2. Gather Branch Data (Local only, skip fetch)
+	allBranches, err := gitcmd.GetAllLocalBranchInfo(ctx)
+	if err != nil || len(allBranches) == 0 {
+		// Silently exit on error or no branches
+		return
+	}
+
+	// 3. Get Merge Status (Requires main branch hash)
+	mainHash, err := gitcmd.GetMainBranchHash(ctx, appConfig.PrimaryMainBranch)
+	if err != nil {
+		// Silently exit if main branch not found
+		return
+	}
+	mergedBranchesMap, err := gitcmd.GetMergedBranches(ctx, mainHash)
+	if err != nil {
+		// Silently exit on error
+		return
+	}
+
+	// 4. Analyze Branches (No need for current branch check here)
+	analyzedBranches := analyze.AnalyzeBranches(allBranches, mergedBranchesMap, appConfig, "") // Pass empty string for current branch
+
+	// 5. Count Candidates
+	mergedOldCount := 0
+	unmergedOldCount := 0
+	for _, branch := range analyzedBranches {
+		if branch.Category == types.CategoryMergedOld {
+			mergedOldCount++
+		} else if branch.Category == types.CategoryUnmergedOld {
+			unmergedOldCount++
+		}
+	}
+
+	// 6. Print Summary
+	if mergedOldCount > 0 || unmergedOldCount > 0 {
+		fmt.Printf("[git-sweep] Candidates: %d merged, %d unmerged old.\n", mergedOldCount, unmergedOldCount)
+	} else {
+		// Print a specific message when no candidates are found
+		fmt.Println("[git-sweep] No candidate branches found.")
+	}
 }
 
 
@@ -146,12 +200,20 @@ safely (both locally and optionally on the remote).`,
 		return nil // No error from pre-run
 	},
 	Run: func(cmd *cobra.Command, args []string) {
+		// Check for quick-status flag first
+		quickStatus, _ := cmd.Flags().GetBool("quick-status")
+		if quickStatus {
+			runQuickStatus(cmd.Context()) // Pass context
+			os.Exit(0)
+		}
+
+		// Proceed with normal interactive flow if not quick-status
 		logDebugf("Configuration loaded. AgeDays: %d, Main: %s, Protected: %v\n",
 			appConfig.AgeDays, appConfig.PrimaryMainBranch, appConfig.ProtectedBranches)
 		logDebugln("\nExecuting git-sweep main logic...")
 
 		// --- Core Workflow Steps ---
-		ctx := context.Background() // Use background context for now
+		ctx := cmd.Context() // Use context from command
 
 		// 2. Check Environment
 		logDebugln("Checking environment...")
@@ -217,36 +279,35 @@ safely (both locally and optionally on the remote).`,
 		analyzedBranches := analyze.AnalyzeBranches(allBranches, mergedBranchesMap, appConfig, currentBranch)
 		logDebugln("-> Branch analysis complete.")
 
-// 6. Check if any candidates exist before proceeding
-hasCandidates := false
-for _, branch := range analyzedBranches {
-	if branch.Category == types.CategoryMergedOld || branch.Category == types.CategoryUnmergedOld {
-		hasCandidates = true
-		break
-	}
-}
+		// 6. Filter out Protected branches before displaying/processing
+		displayableBranches := make([]types.AnalyzedBranch, 0)
+		for _, branch := range analyzedBranches {
+			if branch.Category != types.CategoryProtected {
+				displayableBranches = append(displayableBranches, branch)
+			}
+		}
 
-if !hasCandidates {
-	fmt.Println("-> No candidate branches found for cleanup. Exiting.")
-	os.Exit(0)
-}
-// Don't log candidate count here as we pass all branches to TUI
+		if len(displayableBranches) == 0 {
+			fmt.Println("-> No branches found to display (excluding protected). Exiting.")
+			os.Exit(0)
+		}
+		logDebugf("-> Found %d displayable (non-protected) branches.\n", len(displayableBranches))
 
-// Check for Dry Run *before* launching TUI
-dryRun, _ := cmd.Flags().GetBool("dry-run")
-if dryRun {
-	// Pass all analyzed branches to dry run print function
-	printDryRunActions(analyzedBranches)
-	os.Exit(0) // Exit after printing dry run actions
-}
+		// Check for Dry Run *before* launching TUI
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if dryRun {
+			// Pass only displayable branches to dry run print function
+			printDryRunActions(displayableBranches)
+			os.Exit(0) // Exit after printing dry run actions
+		}
 
-// 7. Launch Interactive TUI (only if not dry run)
-logDebugln("Launching TUI...")
-// Pass *all* analyzed branches to the TUI model
-initialModel := tui.InitialModel(ctx, analyzedBranches, dryRun) // dryRun will be false here
-p := tea.NewProgram(initialModel)
+		// 7. Launch Interactive TUI (only if not dry run)
+		logDebugln("Launching TUI...")
+		// Pass only displayable branches to the TUI model
+		initialModel := tui.InitialModel(ctx, displayableBranches, dryRun) // dryRun will be false here
+		p := tea.NewProgram(initialModel)
 
-if _, err := p.Run(); err != nil {
+		if _, err := p.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error running TUI: %v\n", err)
 			os.Exit(1)
 		}
@@ -282,4 +343,6 @@ func init() {
 	rootCmd.PersistentFlags().Int("age", 0, "Override config: Max age (in days) for unmerged branches (0 uses config default).")
 	rootCmd.PersistentFlags().String("primary-main", "", "Override config: The single main branch name to check merge status against (empty uses config default).")
 	rootCmd.PersistentFlags().StringSlice("protected", []string{}, "Override config: Comma-separated list of protected branch names.")
+	// Add quick-status flag (Bool, local to root command)
+	rootCmd.Flags().Bool("quick-status", false, "Print a quick summary of candidate branches and exit.")
 }
