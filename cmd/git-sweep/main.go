@@ -104,7 +104,13 @@ func runQuickStatus(ctx context.Context) {
 	}
 
 	// 4. Analyze Branches (No need for current branch check here)
-	analyzedBranches := analyze.AnalyzeBranches(allBranches, mergedBranchesMap, appConfig, "") // Pass empty string for current branch
+	analyzedBranches, err := analyze.Branches( // Renamed function call
+		ctx, allBranches, mergedBranchesMap, appConfig, "",
+	) // Pass context and handle error
+	if err != nil {
+		// Silently exit on analysis error in quick status
+		return
+	}
 
 	// 5. Count Candidates
 	mergedOldCount := 0
@@ -278,7 +284,13 @@ safely (both locally and optionally on the remote).`,
 		} else if currentBranch != "" {
 			logDebugf("-> Current branch detected: %s (will be protected)\n", currentBranch)
 		}
-		analyzedBranches := analyze.AnalyzeBranches(allBranches, mergedBranchesMap, appConfig, currentBranch)
+		analyzedBranches, err := analyze.Branches( // Renamed function call
+			ctx, allBranches, mergedBranchesMap, appConfig, currentBranch,
+		) // Pass context and handle error
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error analyzing branches: %v\n", err)
+			os.Exit(1)
+		}
 		logDebugln("-> Branch analysis complete.")
 
 		// 6. Filter out Protected branches before displaying/processing

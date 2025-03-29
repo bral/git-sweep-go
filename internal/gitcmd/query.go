@@ -184,3 +184,51 @@ func GetCurrentBranchName(ctx context.Context) (string, error) {
 
 	return branchName, nil
 }
+
+// areChangesIncludedFunc defines the signature for the function.
+type areChangesIncludedFunc func(ctx context.Context, upstreamBranch, headBranch string) (bool, error)
+
+// AreChangesIncluded is a variable holding the implementation, allowing mocking.
+// It checks if all changes in headBranch are included in upstreamBranch using 'git cherry -v'.
+var AreChangesIncluded areChangesIncludedFunc = areChangesIncludedImpl
+
+// areChangesIncludedImpl is the actual implementation.
+func areChangesIncludedImpl(ctx context.Context, upstreamBranch, headBranch string) (bool, error) {
+	if upstreamBranch == "" || headBranch == "" {
+		return false, fmt.Errorf("upstream and head branch names cannot be empty for cherry check")
+	}
+
+	// Ensure branches exist locally before running cherry? Maybe not necessary, cherry might handle it.
+	// Consider adding checks if needed.
+
+	args := []string{"cherry", "-v", upstreamBranch, headBranch}
+	// Use the global Runner variable which might be mocked by tests
+	output, err := Runner(ctx, args...)
+	if err != nil {
+		// Handle specific errors? e.g., unknown branch?
+		// For now, wrap the generic error.
+		// TODO: Consider checking stderr for specific git errors like "unknown upstream"
+		return false, fmt.Errorf("failed to run git cherry for %s..%s: %w", upstreamBranch, headBranch, err)
+	}
+
+	// If output is empty, it means no commits are unique to headBranch relative to upstreamBranch.
+	// This implies all changes are included.
+	if strings.TrimSpace(output) == "" {
+		return true, nil
+	}
+
+	// Check if any line starts with '+', indicating a commit unique to headBranch.
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmedLine, "+") {
+			// Found a commit in headBranch not present in upstreamBranch
+			return false, nil
+		}
+		// Lines starting with '-' mean the commit is equivalent to one in upstream.
+		// Empty lines can be ignored.
+	}
+
+	// If we looped through all lines and found no '+', all changes are included.
+	return true, nil
+}
