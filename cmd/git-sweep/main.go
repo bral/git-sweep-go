@@ -17,6 +17,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// version is set during build via ldflags
+var version = "dev"
+
 // Global config variable to be used by the command logic
 var appConfig config.Config
 var isDebug bool // Global variable to store debug flag state
@@ -320,12 +323,16 @@ safely (both locally and optionally on the remote).`,
 }
 
 func main() {
-	// Set version dynamically
-	info, ok := debug.ReadBuildInfo()
-	if ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
-		rootCmd.Version = info.Main.Version
+	// Use the version set by ldflags, or fallback to Go's build info
+	if version == "dev" {
+		info, ok := debug.ReadBuildInfo()
+		if ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+			rootCmd.Version = info.Main.Version
+		} else {
+			rootCmd.Version = version // Use the default "dev" value
+		}
 	} else {
-		rootCmd.Version = "dev" // Fallback if no version info found
+		rootCmd.Version = version // Use the version set by goreleaser
 	}
 
 	if err := rootCmd.Execute(); err != nil {
