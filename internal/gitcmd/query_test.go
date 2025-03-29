@@ -486,3 +486,116 @@ func TestGetCurrentBranchName(t *testing.T) {
 		}
 	})
 }
+
+func TestAreChangesIncluded(t *testing.T) {
+	ctx := context.Background()
+	upstreamBranch := "main"
+	headBranch := "feature"
+
+	testCases := []struct {
+		name           string
+		upstream       string
+		head           string
+		mockOutput     string
+		mockError      error
+		expectedResult bool
+		expectedError  bool
+	}{
+		{
+			name:           "All Included - Empty Output",
+			upstream:       upstreamBranch,
+			head:           headBranch,
+			mockOutput:     "", // Empty output means all included
+			mockError:      nil,
+			expectedResult: true,
+			expectedError:  false,
+		},
+		{
+			name:           "All Included - Minus Lines Only",
+			upstream:       upstreamBranch,
+			head:           headBranch,
+			mockOutput:     "- commit1\n- commit2", // Only '-' lines means all included
+			mockError:      nil,
+			expectedResult: true,
+			expectedError:  false,
+		},
+		{
+			name:           "Not Included - Plus Line Present",
+			upstream:       upstreamBranch,
+			head:           headBranch,
+			mockOutput:     "- commit1\n+ commit2\n- commit3", // '+' line means not all included
+			mockError:      nil,
+			expectedResult: false,
+			expectedError:  false,
+		},
+		{
+			name:           "Not Included - Only Plus Line",
+			upstream:       upstreamBranch,
+			head:           headBranch,
+			mockOutput:     "+ commit1", // Only '+' line
+			mockError:      nil,
+			expectedResult: false,
+			expectedError:  false,
+		},
+		{
+			name:           "Git Command Error",
+			upstream:       upstreamBranch,
+			head:           headBranch,
+			mockOutput:     "",
+			mockError:      errors.New("simulated git cherry error"),
+			expectedResult: false, // Result doesn't matter on error
+			expectedError:  true,
+		},
+		{
+			name:           "Empty Upstream Branch Name",
+			upstream:       "", // Empty upstream
+			head:           headBranch,
+			mockOutput:     "",
+			mockError:      nil,
+			expectedResult: false,
+			expectedError:  true, // Should error before calling git
+		},
+		{
+			name:           "Empty Head Branch Name",
+			upstream:       upstreamBranch,
+			head:           "", // Empty head
+			mockOutput:     "",
+			mockError:      nil,
+			expectedResult: false,
+			expectedError:  true, // Should error before calling git
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Only setup mock if we don't expect an error before calling git
+			if !tc.expectedError || tc.mockError != nil {
+				teardown := setup(t, func(_ context.Context, args ...string) (string, error) { // Renamed ctx to _
+					// Check if it's the cherry command
+					if len(args) == 4 && args[0] == "cherry" && args[1] == "-v" && args[2] == tc.upstream && args[3] == tc.head {
+						return tc.mockOutput, tc.mockError
+					}
+					// Allow other commands if needed for more complex tests, but fail otherwise
+					return "", fmt.Errorf("unexpected command in mock: %v", args)
+				})
+				defer teardown()
+			}
+
+			result, err := AreChangesIncluded(ctx, tc.upstream, tc.head)
+
+			if tc.expectedError {
+				if err == nil {
+					t.Errorf("Expected an error, but got nil")
+				}
+				// Optional: Check for specific error content if needed
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error, but got: %v", err)
+				}
+				if result != tc.expectedResult {
+					t.Errorf("Expected result %t, but got %t", tc.expectedResult, result)
+				}
+			}
+		})
+	}
+}
