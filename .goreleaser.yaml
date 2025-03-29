@@ -29,6 +29,9 @@ builds:
     main: ./cmd/git-sweep
     # Binary name
     binary: git-sweep
+    # Add ldflags to inject version info
+    ldflags:
+      - -s -w -X main.version={{.Version}}
 
 archives:
   - format: tar.gz
