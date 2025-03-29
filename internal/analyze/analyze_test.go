@@ -1,12 +1,27 @@
 package analyze
 
 import (
+	"context" // Added for mocking
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/bral/git-sweep-go/internal/config"
+	"github.com/bral/git-sweep-go/internal/gitcmd" // Added for mocking
 	"github.com/bral/git-sweep-go/internal/types"
 )
+
+// Helper to setup mock for AreChangesIncluded
+func setupAreChangesIncludedMock(
+	_ *testing.T, mockFunc func(ctx context.Context, upstream, head string) (bool, error),
+) func() {
+	originalFunc := gitcmd.AreChangesIncluded
+	gitcmd.AreChangesIncluded = mockFunc
+	return func() {
+		gitcmd.AreChangesIncluded = originalFunc
+	}
+}
 
 func TestAnalyzeBranches(t *testing.T) {
 	now := time.Now()
@@ -212,6 +227,60 @@ func TestAnalyzeBranches(t *testing.T) {
 				types.CategoryUnmergedOld: 0,
 			},
 		},
+		{
+			name: "Squash Merged Branch Detected via Cherry Check",
+			branches: []types.BranchInfo{
+				{Name: "main", LastCommitDate: now, CommitHash: "mainHash"},
+				{Name: "feature/squashed", LastCommitDate: sixtyDaysAgo, CommitHash: "squashHash"}, // Not in mergedStatus initially
+				{Name: "feature/active", LastCommitDate: sixtyDaysAgo, CommitHash: "activeHash"},
+			},
+			mergedStatus: map[string]bool{
+				"main": true, // Only main is merged by ancestry
+			},
+			cfg: config.Config{
+				AgeDays:            90,
+				PrimaryMainBranch:  "main",
+				ProtectedBranches:  []string{},
+				ProtectedBranchMap: map[string]bool{},
+			},
+			currentBranch: "main",
+			expectedCounts: map[types.BranchCategory]int{
+				types.CategoryProtected:   1, // main
+				types.CategoryActive:      1, // feature/active
+				types.CategoryMergedOld:   1, // feature/squashed (detected by mock)
+				types.CategoryUnmergedOld: 0,
+			},
+			// This test case requires mocking gitcmd.AreChangesIncluded
+		},
+		{
+			name: "Cherry Check Fails", // Test when AreChangesIncluded returns an error
+			branches: []types.BranchInfo{
+				{Name: "main", LastCommitDate: now, CommitHash: "mainHash"},
+				{ // Not merged, cherry check will fail
+					Name:           "feature/cherry-fails",
+					LastCommitDate: sixtyDaysAgo,
+					CommitHash:     "cherryFailHash",
+				},
+			},
+			mergedStatus: map[string]bool{
+				"main": true,
+			},
+			cfg: config.Config{
+				AgeDays:            90,
+				PrimaryMainBranch:  "main",
+				ProtectedBranches:  []string{},
+				ProtectedBranchMap: map[string]bool{},
+			},
+			currentBranch: "main",
+			expectedCounts: map[types.BranchCategory]int{
+				// Expect error, so counts don't matter as much, but should reflect state *before* error
+				types.CategoryProtected:   1, // main
+				types.CategoryActive:      1, // feature/cherry-fails (treated as active before error)
+				types.CategoryMergedOld:   0,
+				types.CategoryUnmergedOld: 0,
+			},
+			// This test case requires mocking gitcmd.AreChangesIncluded to return an error
+		},
 	}
 
 	for _, tc := range testCases {
@@ -224,8 +293,62 @@ func TestAnalyzeBranches(t *testing.T) {
 				}
 			}
 
-			// Call AnalyzeBranches with the current branch name
-			analyzed := AnalyzeBranches(tc.branches, tc.mergedStatus, tc.cfg, tc.currentBranch)
+			// --- Mocking Setup ---
+			// Default mock: Assume cherry check returns false (not included) and no error
+			// This prevents real git commands from running in most test cases.
+			mockFunc := func(_ context.Context, _ /*upstream*/, _ /*head*/ string) (bool, error) {
+				// Default mock doesn't need upstream or head, only specific overrides do.
+				return false, nil
+			}
+			mockErr := fmt.Errorf("simulated cherry check error") // Define error for reuse
+
+			// Override mock for specific test cases
+			switch tc.name {
+			case "Squash Merged Branch Detected via Cherry Check":
+				mockFunc = func(_ context.Context, upstream, head string) (bool, error) { // Renamed ctx to _
+					if upstream == tc.cfg.PrimaryMainBranch && head == "feature/squashed" {
+						return true, nil // Simulate cherry check passing for this branch
+					}
+					return false, nil // Default for others in this specific test
+				}
+			case "Cherry Check Fails":
+				mockFunc = func(_ context.Context, upstream, head string) (bool, error) { // Renamed ctx to _
+					if upstream == tc.cfg.PrimaryMainBranch && head == "feature/cherry-fails" {
+						return false, mockErr // Simulate cherry check failing
+					}
+					return false, nil // Default for others in this specific test
+				}
+			}
+
+			// Apply the chosen mock function and ensure teardown
+			teardown := setupAreChangesIncludedMock(t, mockFunc)
+			defer teardown()
+			// --- End Mocking Setup ---
+
+			// Call Branches with the current branch name (renamed from AnalyzeBranches)
+			// Add context.Background() and handle the error return value
+			analyzed, err := Branches(context.Background(), tc.branches, tc.mergedStatus, tc.cfg, tc.currentBranch)
+
+			// --- Error Handling based on test case ---
+			if tc.name == "Cherry Check Fails" {
+				if err == nil {
+					t.Fatalf("Expected an error from AnalyzeBranches due to cherry check failure, but got nil")
+				}
+				// Check if the error wraps the specific mocked error
+				if !errors.Is(err, mockErr) {
+					t.Errorf("Expected error to wrap '%v', but got: %v", mockErr, err)
+				}
+				// Since we expected an error and got one, we can stop further checks for this case.
+				// We might want to verify the state *before* the error, but the current expectedCounts
+				// already reflect that.
+				return
+			}
+			// For other tests, we don't expect an error from AnalyzeBranches itself
+			if err != nil {
+				// If an error occurred unexpectedly (e.g., mock setup issue), fail the test.
+				t.Fatalf("AnalyzeBranches returned an unexpected error for test case '%s': %v", tc.name, err)
+			}
+			// --- End Error Handling ---
 
 			if len(analyzed) != len(tc.branches) {
 				t.Errorf("Expected %d analyzed branches, got %d", len(tc.branches), len(analyzed))
