@@ -97,10 +97,10 @@ if [[ "$EDIT_NOTES" == "y" || "$EDIT_NOTES" == "Y" ]]; then
     # Create a temporary file with the release notes
     TEMP_FILE=$(mktemp)
     echo "$RELEASE_NOTES" > "$TEMP_FILE"
-    
+
     # Open in default editor
     ${EDITOR:-vim} "$TEMP_FILE"
-    
+
     # Read the edited release notes
     RELEASE_NOTES=$(cat "$TEMP_FILE")
     rm "$TEMP_FILE"
@@ -133,7 +133,7 @@ echo "✅ Tag pushed to remote."
 echo "Running goreleaser..."
 RELEASE_NOTES_FILE=$(mktemp)
 echo "$RELEASE_NOTES" > "$RELEASE_NOTES_FILE"
-GORELEASER_PREVIOUS_TAG="$CURRENT_VERSION" GORELEASER_CURRENT_TAG="$NEW_VERSION" goreleaser release --release-notes="$RELEASE_NOTES_FILE"
+GORELEASER_PREVIOUS_TAG="$CURRENT_VERSION" GORELEASER_CURRENT_TAG="$NEW_VERSION" goreleaser release --release-notes="$RELEASE_NOTES_FILE" --clean
 rm "$RELEASE_NOTES_FILE"
 
 echo "✅ Release $NEW_VERSION complete!"
