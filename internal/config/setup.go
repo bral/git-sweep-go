@@ -12,17 +12,21 @@ import (
 // It takes an input reader and output writer for flexibility (e.g., testing).
 // It returns the generated Config struct based on user input or defaults.
 func FirstRunSetup(reader *bufio.Reader, writer io.Writer) (Config, error) {
-	fmt.Fprintln(writer, "Configuration file not found. Let's set up some defaults.")
+	// Ignore bytes written and error
+	_, _ = fmt.Fprintln(writer, "Configuration file not found. Let's set up some defaults.")
 	cfg := DefaultConfig() // Start with defaults
 
 	// Prompt for Age Days
-	fmt.Fprintf(writer, "Enter max age (in days) for unmerged branches to be considered old [%d]: ", defaultAgeDays)
+	// Ignore bytes written and error
+	_, _ = fmt.Fprintf(writer,
+		"Enter max age (in days) for unmerged branches to be considered old [%d]: ", defaultAgeDays)
 	input, _ := reader.ReadString('\n')
 	input = strings.TrimSpace(input)
 	if input != "" {
 		age, err := strconv.Atoi(input)
 		if err != nil || age <= 0 {
-			fmt.Fprintf(writer, "Invalid input. Using default age: %d days.\n", defaultAgeDays)
+			// Ignore bytes written and error
+			_, _ = fmt.Fprintf(writer, "Invalid input. Using default age: %d days.\n", defaultAgeDays)
 			// Keep default age
 		} else {
 			cfg.AgeDays = age
@@ -30,16 +34,20 @@ func FirstRunSetup(reader *bufio.Reader, writer io.Writer) (Config, error) {
 	} // else keep default
 
 	// Prompt for Primary Main Branch
-	fmt.Fprintf(writer, "Enter the name of your primary development branch (e.g., main, master) [%s]: ", defaultMainBranch)
+	// Ignore bytes written and error
+	_, _ = fmt.Fprintf(writer,
+		"Enter the name of your primary development branch (e.g., main, master) [%s]: ",
+		defaultMainBranch)
 	input, _ = reader.ReadString('\n')
 	input = strings.TrimSpace(input)
-	if input != "" {
+	if input != "" { // Add missing opening brace
 		// TODO: Add validation? Check if branch exists? For now, just accept input.
 		cfg.PrimaryMainBranch = input
 	} // else keep default
 
 	// Prompt for Protected Branches
-	fmt.Fprintln(writer, "Enter any branches to protect from deletion (comma-separated, e.g., develop,release): ")
+	_, _ = fmt.Fprint(writer, "Enter any branches to protect from deletion ") // Ignore bytes written and error
+	_, _ = fmt.Fprintln(writer, "(comma-separated, e.g., develop,release): ") // Ignore bytes written and error
 	input, _ = reader.ReadString('\n')
 	input = strings.TrimSpace(input)
 	if input != "" {
@@ -59,7 +67,7 @@ func FirstRunSetup(reader *bufio.Reader, writer io.Writer) (Config, error) {
 		cfg.ProtectedBranchMap[branch] = true
 	}
 
-	fmt.Fprintln(writer, "\nConfiguration setup complete.")
+	_, _ = fmt.Fprintln(writer, "\nConfiguration setup complete.") // Ignore bytes written and error
 	// The caller will be responsible for saving this config and informing the user.
 
 	return cfg, nil

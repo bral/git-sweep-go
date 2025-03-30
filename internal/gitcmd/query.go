@@ -3,6 +3,7 @@ package gitcmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -12,19 +13,24 @@ import (
 )
 
 const (
+	cmdForEachRef = "for-each-ref"
 	// Format: branchname<NULL>upstream:short<NULL>upstream:remotename<NULL>committerdate:iso8601<NULL>objectname<NEWLINE>
 	// Using NULL character (\x00) as the field separator and newline (\n) as the record separator.
-	branchInfoFormat = "%(refname:short)%00%(upstream:short)%00%(upstream:remotename)%00%(committerdate:iso8601)%00%(objectname)"
-	fieldSeparator   = "\x00" // Null character
+	branchInfoFormat = "%(refname:short)%00" +
+		"%(upstream:short)%00" +
+		"%(upstream:remotename)%00" +
+		"%(committerdate:iso8601)%00" +
+		"%(objectname)"
+	fieldSeparator  = "\x00" // Null character
+	detachedHeadStr = "HEAD" // Constant for detached HEAD string
 )
 
-// GetAllLocalBranchInfo fetches details for all local branches using git for-each-ref.
-// It parses the output into a slice of BranchInfo structs.
+// GetAllLocalBranchInfo retrieves information about all local branches.
 func GetAllLocalBranchInfo(ctx context.Context) ([]types.BranchInfo, error) {
 	args := []string{
-		"for-each-ref",
-		"refs/heads/", // Limit to local branches
-		"--format=" + branchInfoFormat,
+		cmdForEachRef,
+		"refs/heads/",
+		fmt.Sprintf("--format=%s", branchInfoFormat),
 	}
 
 	// Execute the git command using the helper function
@@ -44,9 +50,10 @@ func GetAllLocalBranchInfo(ctx context.Context) ([]types.BranchInfo, error) {
 		return []types.BranchInfo{}, nil
 	}
 
-	var branches []types.BranchInfo
 	// Split the output into records based on the newline character
 	records := strings.Split(output, "\n")
+	// Pre-allocate slice with estimated capacity
+	branches := make([]types.BranchInfo, 0, len(records))
 
 	for _, record := range records {
 		// Skip empty records which might occur (though less likely with newline separator)
@@ -58,8 +65,11 @@ func GetAllLocalBranchInfo(ctx context.Context) ([]types.BranchInfo, error) {
 		fields := strings.Split(record, fieldSeparator)
 		if len(fields) != 5 {
 			// This indicates unexpected output format from git. Log or handle appropriately.
-			// For now, print a warning and skip the malformed record.
-			fmt.Printf("warning: skipping malformed branch record from git (expected 5 fields, got %d): %q\n", len(fields), record) // TODO: Replace with proper logging
+			// For now, print a warning to stderr and skip the malformed record.
+			// TODO: Replace with proper logging
+			_, _ = fmt.Fprintf(os.Stderr,
+				"warning: skipping malformed branch record from git (expected 5 fields, got %d): %q\n",
+				len(fields), record) // Use Fprintf to os.Stderr
 			continue
 		}
 
@@ -74,7 +84,10 @@ func GetAllLocalBranchInfo(ctx context.Context) ([]types.BranchInfo, error) {
 		commitDate, err := time.Parse("2006-01-02 15:04:05 -0700", dateStr)
 		if err != nil {
 			// Failed to parse date, skip this branch and warn.
-			fmt.Printf("warning: skipping branch %q due to date parse error ('%s'): %v\n", name, dateStr, err) // TODO: Replace with proper logging
+			// TODO: Replace with proper logging
+			_, _ = fmt.Fprintf(os.Stderr,
+				"warning: skipping branch %q due to date parse error ('%s'): %v\n",
+				name, dateStr, err) // Use Fprintf to os.Stderr
 			continue
 		}
 
@@ -157,18 +170,19 @@ func GetCurrentBranchName(ctx context.Context) (string, error) {
 	// but returns "HEAD" if detached.
 	args := []string{"branch", "--show-current"}
 	branchName, err := RunGitCommand(ctx, args...)
-
 	if err != nil {
 		// If `git branch --show-current` fails, try the fallback
 		// Check if the error indicates the command is unknown (older Git)
-		if strings.Contains(err.Error(), "unknown switch `show-current'") || strings.Contains(err.Error(), "unknown option `show-current'") {
+		errStr := err.Error()
+		if strings.Contains(errStr, "unknown switch `show-current'") ||
+			strings.Contains(errStr, "unknown option `show-current'") {
 			args = []string{"rev-parse", "--abbrev-ref", "HEAD"}
 			branchName, err = RunGitCommand(ctx, args...)
 			if err != nil {
 				return "", fmt.Errorf("failed to get current branch using fallback rev-parse: %w", err)
 			}
 			// If HEAD is detached, rev-parse returns "HEAD"
-			if branchName == "HEAD" {
+			if branchName == detachedHeadStr {
 				return "", nil // Treat detached HEAD as no current branch for our purposes
 			}
 			return branchName, nil

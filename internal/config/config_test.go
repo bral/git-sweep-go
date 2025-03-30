@@ -62,10 +62,12 @@ func TestSaveAndLoadConfig(t *testing.T) {
 		t.Errorf("Loaded AgeDays mismatch: got %d, want %d", loadedCfg.AgeDays, configToSave.AgeDays)
 	}
 	if loadedCfg.PrimaryMainBranch != configToSave.PrimaryMainBranch {
-		t.Errorf("Loaded PrimaryMainBranch mismatch: got %q, want %q", loadedCfg.PrimaryMainBranch, configToSave.PrimaryMainBranch)
+		t.Errorf("Loaded PrimaryMainBranch mismatch: got %q, want %q",
+			loadedCfg.PrimaryMainBranch, configToSave.PrimaryMainBranch)
 	}
 	if !reflect.DeepEqual(loadedCfg.ProtectedBranches, configToSave.ProtectedBranches) {
-		t.Errorf("Loaded ProtectedBranches mismatch: got %v, want %v", loadedCfg.ProtectedBranches, configToSave.ProtectedBranches)
+		t.Errorf("Loaded ProtectedBranches mismatch: got %v, want %v",
+			loadedCfg.ProtectedBranches, configToSave.ProtectedBranches)
 	}
 
 	// 5. Verify the ProtectedBranchMap was populated correctly by LoadConfig
@@ -85,7 +87,7 @@ func TestLoadConfig_DefaultsApplied(t *testing.T) {
 primary_main_branch = "" # Empty, should use default
 # protected_branches is omitted, should use default empty slice
 `
-	err := os.WriteFile(customPath, []byte(partialContent), 0644)
+	err := os.WriteFile(customPath, []byte(partialContent), 0o644)
 	if err != nil {
 		t.Fatalf("Failed to write partial config file: %v", err)
 	}
@@ -115,7 +117,7 @@ func TestLoadConfig_InvalidToml(t *testing.T) {
 	customPath := filepath.Join(tempDir, "invalid.toml")
 
 	invalidContent := `age_days = 90\nprimary_main_branch = "main` // Missing closing quote
-	err := os.WriteFile(customPath, []byte(invalidContent), 0644)
+	err := os.WriteFile(customPath, []byte(invalidContent), 0o644)
 	if err != nil {
 		t.Fatalf("Failed to write invalid config file: %v", err)
 	}

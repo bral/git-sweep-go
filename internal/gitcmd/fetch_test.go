@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	// Removed reflect import as reflectDeepEqual is removed
 )
 
-// Note: The setup function is defined in query_test.go but accessible within the package.
+// Note: The setupMockRunner function is defined in test_helpers_test.go
 
 func TestFetchAndPrune(t *testing.T) {
 	ctx := context.Background()
@@ -16,10 +17,16 @@ func TestFetchAndPrune(t *testing.T) {
 
 	// --- Test Case 1: Successful Fetch ---
 	t.Run("Successful Fetch", func(t *testing.T) {
-		teardown := setup(t, func(ctx context.Context, args ...string) (string, error) {
+		teardown := setupMockRunner(t, func(_ context.Context, args ...string) (string, error) { // Use setupMockRunner
 			expectedArgs := []string{"fetch", remoteName, "--prune"}
-			if !reflectDeepEqual(args, expectedArgs) { // Using reflect.DeepEqual helper
-				return "", fmt.Errorf("unexpected command args: got %v, want %v", args, expectedArgs)
+			// Simple comparison is sufficient here as the mock logic is specific to this test case
+			if len(args) != len(expectedArgs) {
+				return "", fmt.Errorf("unexpected command args length: got %d, want %d", len(args), len(expectedArgs))
+			}
+			for i := range args {
+				if args[i] != expectedArgs[i] {
+					return "", fmt.Errorf("unexpected command arg at index %d: got %q, want %q", i, args[i], expectedArgs[i])
+				}
 			}
 			return "Fetch output", nil // Output doesn't matter much, just success
 		})
@@ -34,7 +41,7 @@ func TestFetchAndPrune(t *testing.T) {
 	// --- Test Case 2: Git Command Error ---
 	t.Run("Git Command Error", func(t *testing.T) {
 		expectedErr := errors.New("simulated fetch error")
-		teardown := setup(t, func(ctx context.Context, args ...string) (string, error) {
+		teardown := setupMockRunner(t, func(_ context.Context, _ ...string) (string, error) { // Use setupMockRunner
 			// Simulate the runner returning an error
 			return "", expectedErr
 		})
@@ -58,7 +65,7 @@ func TestFetchAndPrune(t *testing.T) {
 	// --- Test Case 3: Empty Remote Name ---
 	t.Run("Empty Remote Name", func(t *testing.T) {
 		// Runner should not be called
-		teardown := setup(t, func(ctx context.Context, args ...string) (string, error) {
+		teardown := setupMockRunner(t, func(_ context.Context, args ...string) (string, error) { // Use setupMockRunner
 			t.Errorf("Runner should not be called with empty remote name, called with: %v", args)
 			return "", errors.New("runner called unexpectedly")
 		})
@@ -74,36 +81,4 @@ func TestFetchAndPrune(t *testing.T) {
 	})
 }
 
-// reflectDeepEqual is a simple helper for comparing slices in the mock.
-// Needed because direct comparison of slices doesn't work.
-func reflectDeepEqual(a, b interface{}) bool {
-	// Basic type check first
-	if fmt.Sprintf("%T", a) != fmt.Sprintf("%T", b) {
-		return false
-	}
-
-	// Use reflect.DeepEqual for actual comparison
-	// Note: This requires importing "reflect"
-	// If reflect is not desired, implement manual slice comparison.
-	// For this test, let's assume reflect is acceptable.
-	// We need to import "reflect" for this.
-	// Let's try without reflect first for simplicity in this context.
-
-	aSlice, okA := a.([]string)
-	bSlice, okB := b.([]string)
-
-	if !okA || !okB {
-		// Fallback or error if not []string, adjust as needed
-		return false
-	}
-
-	if len(aSlice) != len(bSlice) {
-		return false
-	}
-	for i := range aSlice {
-		if aSlice[i] != bSlice[i] {
-			return false
-		}
-	}
-	return true
-}
+// Removed reflectDeepEqual helper function as it's no longer needed

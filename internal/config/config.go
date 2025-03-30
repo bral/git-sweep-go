@@ -1,3 +1,4 @@
+// Package config handles loading, saving, and defining the application's configuration.
 package config
 
 import (
@@ -22,9 +23,9 @@ const (
 // Config holds the application configuration settings.
 // Tags correspond to the keys in the TOML configuration file.
 type Config struct {
-	AgeDays            int      `toml:"age_days"`
-	PrimaryMainBranch  string   `toml:"primary_main_branch"`
-	ProtectedBranches  []string `toml:"protected_branches"`
+	AgeDays           int      `toml:"age_days"`
+	PrimaryMainBranch string   `toml:"primary_main_branch"`
+	ProtectedBranches []string `toml:"protected_branches"`
 
 	// Internal map for faster lookups, not loaded from TOML directly
 	ProtectedBranchMap map[string]bool `toml:"-"`
@@ -132,7 +133,7 @@ func SaveConfig(cfg Config, customPath string) (string, error) {
 
 	// Ensure the directory exists
 	dir := filepath.Dir(savePath)
-	if err := os.MkdirAll(dir, 0750); err != nil { // Use 0750 for permissions (owner rwx, group rx, others ---)
+	if err := os.MkdirAll(dir, 0o750); err != nil { // Use 0750 for permissions (owner rwx, group rx, others ---)
 		return savePath, fmt.Errorf("could not create config directory %q: %w", dir, err)
 	}
 
@@ -141,19 +142,25 @@ func SaveConfig(cfg Config, customPath string) (string, error) {
 	if err != nil {
 		return savePath, fmt.Errorf("could not create config file %q: %w", savePath, err)
 	}
-	defer file.Close()
+	// Defer closing the file, checking for errors on close.
+	defer func() {
+		if closeErr := file.Close(); err == nil && closeErr != nil {
+			// If no previous error occurred, but closing failed, report the close error.
+			err = fmt.Errorf("failed to close config file %q: %w", savePath, closeErr)
+		}
+	}()
 
 	// Encode the config to TOML
 	encoder := toml.NewEncoder(file)
 	// We don't want to save the internal map
 	configToSave := struct {
-		AgeDays            int      `toml:"age_days"`
-		PrimaryMainBranch  string   `toml:"primary_main_branch"`
-		ProtectedBranches  []string `toml:"protected_branches"`
+		AgeDays           int      `toml:"age_days"`
+		PrimaryMainBranch string   `toml:"primary_main_branch"`
+		ProtectedBranches []string `toml:"protected_branches"`
 	}{
-		AgeDays:            cfg.AgeDays,
-		PrimaryMainBranch:  cfg.PrimaryMainBranch,
-		ProtectedBranches:  cfg.ProtectedBranches,
+		AgeDays:           cfg.AgeDays,
+		PrimaryMainBranch: cfg.PrimaryMainBranch,
+		ProtectedBranches: cfg.ProtectedBranches,
 	}
 
 	if err := encoder.Encode(configToSave); err != nil {
