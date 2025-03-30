@@ -25,7 +25,10 @@ const (
 	detachedHeadStr = "HEAD" // Constant for detached HEAD string
 )
 
-// GetAllLocalBranchInfo retrieves information about all local branches.
+// GetAllLocalBranchInfo retrieves details of all local Git branches by executing the "for-each-ref" command.
+// It parses the command output into BranchInfo structures that include the branch name, upstream configuration,
+// remote, last commit date, and commit hash. An empty slice is returned if no branches are found, and an error
+// is returned if the Git command fails. Malformed records or branches with unparseable dates are skipped.
 func GetAllLocalBranchInfo(ctx context.Context) ([]types.BranchInfo, error) {
 	args := []string{
 		cmdForEachRef,
@@ -163,7 +166,11 @@ func IsInGitRepo(ctx context.Context) (bool, error) {
 }
 
 // GetCurrentBranchName retrieves the name of the currently checked-out branch.
-// It returns an empty string if HEAD is detached or if an error occurs.
+// GetCurrentBranchName returns the name of the currently checked out Git branch.
+// It first attempts to retrieve the branch name using "git branch --show-current". If this command fails
+// due to an unsupported Git version, it falls back to "git rev-parse --abbrev-ref HEAD". If a detached HEAD is
+// detected or no branch name is found, the function returns an empty string. Any errors encountered during
+// command execution are wrapped and returned.
 func GetCurrentBranchName(ctx context.Context) (string, error) {
 	// `git branch --show-current` is simpler and preferred if available (Git 2.22+)
 	// `git rev-parse --abbrev-ref HEAD` is a fallback that works on older versions

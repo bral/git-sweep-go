@@ -117,7 +117,14 @@ func LoadConfig(customPath string) (Config, error) {
 
 // SaveConfig saves the provided configuration to the specified path or the default location.
 // It creates the necessary directories if they don't exist.
-// It returns the path where the file was saved and any error encountered.
+// SaveConfig writes the given configuration to a TOML file.
+// If a custom file path is provided, it uses that; otherwise, it constructs
+// a default path using the user's configuration directory along with preset
+// directory and file names. It ensures that the target directory exists (with
+// permissions 0o750), encodes the configuration (omitting the internal map)
+// into TOML, and writes it to the file. The function returns the file path and
+// any error encountered, including errors during file creation, encoding, or
+// file closure.
 func SaveConfig(cfg Config, customPath string) (string, error) {
 	savePath := ""
 

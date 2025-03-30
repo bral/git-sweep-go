@@ -27,7 +27,8 @@ var (
 	isDebug   bool // Global variable to store debug flag state
 )
 
-// logDebugf prints only if the --debug flag is set, writing to stderr.
+// LogDebugf logs a formatted debug message to stderr when the debug flag is enabled.
+// It takes a format string and corresponding arguments, writing the resulting message only if debug logging is active.
 func logDebugf(format string, a ...any) {
 	if isDebug {
 		// Write debug info to stderr
@@ -43,7 +44,12 @@ func logDebugln(a ...any) {
 	}
 }
 
-// printDryRunActions prints the actions that would be taken for selectable branches to stdout.
+// printDryRunActions prints a summary of branch deletion actions for a dry run.
+// It outputs to stdout the proposed local and remote deletions for branches that are
+// considered candidates (merged, unmerged, or active). For local branches, a safe deletion
+// flag (-d) is used for merged branches and a force deletion flag (-D) for unmerged ones.
+// If no candidate branches are found for either local or remote deletions, it prints "(None)".
+// No changes are made to the repository.
 func printDryRunActions(displayableBranches []types.AnalyzedBranch) {
 	_, _ = fmt.Fprintln(os.Stdout, "[Dry Run] Proposed Actions (Only showing selectable branches):")
 	_, _ = fmt.Fprintln(os.Stdout, "\nLocal Deletions:")
@@ -88,7 +94,12 @@ func printDryRunActions(displayableBranches []types.AnalyzedBranch) {
 	_, _ = fmt.Fprintln(os.Stdout, "\n(Dry run complete, no changes made)")
 }
 
-// runQuickStatus performs a fast, non-interactive analysis and prints a summary to stdout.
+// runQuickStatus performs a rapid, non-interactive audit of the local Git repository,
+// printing a summary of candidate branches for cleanup based on their merge status.
+// It verifies that the current working directory is a Git repository, retrieves local branch
+// information and the main branch commit hash (using the configured primary branch), and
+// categorizes branches as merged or unmerged candidates. If any step fails or no branch data
+// is available, the function exits silently.
 func runQuickStatus(ctx context.Context) {
 	logDebugln("Running quick status...")
 
@@ -370,6 +381,7 @@ func main() {
 	}
 }
 
+// init initializes and registers the command-line flags for git-sweep. It sets up persistent flags for enabling debug logging, performing a dry-run, specifying a custom configuration file, defining the remote repository for deletion operations, overriding the maximum branch age, setting the primary main branch, and listing protected branches, as well as a local flag for printing a quick summary of candidate branches.
 func init() {
 	// Define flags based on PROJECT_PLAN.md Section 10
 	rootCmd.PersistentFlags().Bool("debug", false, "Enable debug logging.")

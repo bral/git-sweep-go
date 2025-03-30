@@ -87,7 +87,14 @@ type Model struct { // Renamed from model
 	Height              int                    `json:"height"`
 }
 
-// InitialModel creates the starting model for the TUI, separating branches into three groups.
+// InitialModel initializes and returns a TUI model for managing Git branches.
+// It categorizes the provided analyzed branches into three groups based on their type:
+//   - Key branches (protected),
+//   - Suggested branches (merged or unmerged old), and
+//   - Active branches.
+// The function also preserves the original branch order for display, sets up maps
+// for local and remote branch selection, and configures a spinner with a dot animation
+// for visual feedback. The dryRun flag determines if branch deletions are simulated.
 func InitialModel(
 	ctx context.Context,
 	analyzedBranches []types.AnalyzedBranch,
@@ -146,7 +153,11 @@ func (m Model) Init() tea.Cmd {
 }
 
 // performDeletionCmd is a tea.Cmd that executes the branch deletions.
-// Kept internal as it's only used within the TUI update loop.
+// performDeletionCmd creates and returns a Bubble Tea command that initiates
+// the deletion of Git branches. When executed, the command calls gitcmd.DeleteBranches
+// with the provided context, list of branches to delete, and dry-run flag to determine
+// if the deletions should be simulated. The resulting outcome is wrapped in a resultsMsg.
+// This function is used internally within the TUI update loop.
 func performDeletionCmd(ctx context.Context, branchesToDelete []gitcmd.BranchToDelete, dryRun bool) tea.Cmd {
 	return func() tea.Msg {
 		results := gitcmd.DeleteBranches(ctx, branchesToDelete, dryRun)

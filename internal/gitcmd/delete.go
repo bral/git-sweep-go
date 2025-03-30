@@ -20,7 +20,12 @@ type BranchToDelete struct {
 
 // DeleteBranches attempts to delete the specified local and remote branches.
 // It takes a slice of BranchToDelete structs and returns a slice of DeleteResult
-// detailing the outcome of each attempt.
+// DeleteBranches deletes the specified local and remote Git branches.
+// It iterates over each branch in the input slice and determines the appropriate Git command based on the branch's properties.
+// For remote branches, it constructs a deletion command using "git push <remote> --delete <branch>" and fails if the remote name is empty.
+// For local branches, it chooses between safe deletion ("git branch -d <branch>") if the branch is merged, or forced deletion ("git branch -D <branch>") otherwise.
+// When the dryRun flag is enabled, the function simulates deletion by recording the command without executing it.
+// The function returns a slice of DeleteResult, each detailing the outcome of a deletion attempt, including success status, relevant messages, and the deleted branch's hash when applicable.
 func DeleteBranches(ctx context.Context, branches []BranchToDelete, dryRun bool) []types.DeleteResult {
 	results := make([]types.DeleteResult, 0, len(branches))
 

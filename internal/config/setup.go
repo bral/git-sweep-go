@@ -10,7 +10,12 @@ import (
 
 // FirstRunSetup prompts the user for initial configuration values when no config file is found.
 // It takes an input reader and output writer for flexibility (e.g., testing).
-// It returns the generated Config struct based on user input or defaults.
+// FirstRunSetup prompts the user for initial configuration values and returns a Config struct populated with either user input or default settings.
+//
+// It notifies the user that no configuration file was found and then requests input for the maximum age (in days) for unmerged branches,
+// the primary development branch name, and any branches to protect from deletion (as a comma-separated list). Invalid or empty inputs 
+// result in the retention of default values. The function also constructs a map for protected branches for efficient lookups.
+// The returned Config should be persisted by the caller.
 func FirstRunSetup(reader *bufio.Reader, writer io.Writer) (Config, error) {
 	// Ignore bytes written and error
 	_, _ = fmt.Fprintln(writer, "Configuration file not found. Let's set up some defaults.")

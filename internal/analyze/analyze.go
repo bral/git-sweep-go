@@ -14,7 +14,10 @@ import (
 // Branches categorizes branches based on merge status, age, and protection rules.
 // It takes raw branch info, a map indicating which branches are merged into the primary main branch,
 // the application configuration, and the name of the currently checked-out branch.
-// It now also performs a 'git cherry -v' check for non-merged, non-protected branches.
+// Branches analyzes a slice of Git branches to determine their merge, protection, and age status.
+// It checks non-merged, non-protected branches with a 'git cherry -v' command against the primary main branch,
+// updating the merge status accordingly. Each branch is then categorized as Protected, MergedOld, UnmergedOld, or Active.
+// An error is returned if the git cherry check fails.
 func Branches(
 	ctx context.Context, branches []types.BranchInfo, mergedStatus map[string]bool,
 	cfg config.Config, currentBranchName string,
