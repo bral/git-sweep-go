@@ -1,3 +1,4 @@
+// Package gitcmd provides functions for interacting with the git command-line tool.
 package gitcmd
 
 import (
@@ -77,6 +78,8 @@ func DeleteBranches(ctx context.Context, branches []BranchToDelete, dryRun bool)
 		} else {
 			result.Success = true
 			result.Message = "Successfully deleted"
+			// Store the hash of the deleted branch for potential recovery info
+			result.DeletedHash = branch.Hash
 		}
 		results = append(results, result)
 	}

@@ -1,3 +1,4 @@
+// Package analyze contains the logic for analyzing Git branches based on configuration and merge status.
 package analyze
 
 import (
@@ -10,7 +11,7 @@ import (
 	"github.com/bral/git-sweep-go/internal/types"
 )
 
-// AnalyzeBranches categorizes branches based on merge status, age, and protection rules.
+// Branches categorizes branches based on merge status, age, and protection rules.
 // It takes raw branch info, a map indicating which branches are merged into the primary main branch,
 // the application configuration, and the name of the currently checked-out branch.
 // It now also performs a 'git cherry -v' check for non-merged, non-protected branches.
@@ -68,16 +69,17 @@ func Branches(
 			IsOldByAge: now.Sub(branch.LastCommitDate) > ageThreshold,
 		}
 
-		// Determine Category
-		if analyzed.IsProtected {
+		// Determine Category using a switch for clarity
+		switch {
+		case analyzed.IsProtected:
 			analyzed.Category = types.CategoryProtected
-		} else if analyzed.IsMerged {
+		case analyzed.IsMerged:
 			// Merged branches (including those detected by 'git cherry') are candidates for deletion regardless of age
 			analyzed.Category = types.CategoryMergedOld
-		} else if analyzed.IsOldByAge {
+		case analyzed.IsOldByAge:
 			// Unmerged but old branches are candidates
 			analyzed.Category = types.CategoryUnmergedOld
-		} else {
+		default:
 			// Neither protected, merged (by either method), nor old - considered active
 			analyzed.Category = types.CategoryActive
 		}

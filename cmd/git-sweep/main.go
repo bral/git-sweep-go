@@ -1,3 +1,4 @@
+// Package main implements the entry point and CLI orchestration for git-sweep.
 package main
 
 import (
@@ -21,59 +22,73 @@ import (
 var version = "dev"
 
 // Global config variable to be used by the command logic
-var appConfig config.Config
-var isDebug bool // Global variable to store debug flag state
+var (
+	appConfig config.Config
+	isDebug   bool // Global variable to store debug flag state
+)
 
-// logDebugf prints only if the --debug flag is set.
+// logDebugf prints only if the --debug flag is set, writing to stderr.
 func logDebugf(format string, a ...any) {
 	if isDebug {
-		fmt.Printf(format, a...)
+		// Write debug info to stderr
+		_, _ = fmt.Fprintf(os.Stderr, format, a...)
 	}
 }
 
-// logDebugln prints only if the --debug flag is set.
+// logDebugln prints only if the --debug flag is set, writing to stderr.
 func logDebugln(a ...any) {
 	if isDebug {
-		fmt.Println(a...)
+		// Write debug info to stderr
+		_, _ = fmt.Fprintln(os.Stderr, a...)
 	}
 }
 
-// printDryRunActions prints the actions that would be taken for selectable branches.
+// printDryRunActions prints the actions that would be taken for selectable branches to stdout.
 func printDryRunActions(displayableBranches []types.AnalyzedBranch) {
-	fmt.Println("[Dry Run] Proposed Actions (Only showing selectable branches):")
-	fmt.Println("\nLocal Deletions:")
+	_, _ = fmt.Fprintln(os.Stdout, "[Dry Run] Proposed Actions (Only showing selectable branches):")
+	_, _ = fmt.Fprintln(os.Stdout, "\nLocal Deletions:")
 	hasLocal := false
 	for _, branch := range displayableBranches {
 		// Only print actions for selectable branches (which are all displayable ones now)
 		// This check is technically redundant if displayableBranches is filtered correctly, but keep for safety.
-		if !(branch.Category == types.CategoryActive || branch.Category == types.CategoryMergedOld || branch.Category == types.CategoryUnmergedOld) {
+		isCandidate := branch.Category == types.CategoryMergedOld || branch.Category == types.CategoryUnmergedOld
+		// Also include Active for now based on original logic, though maybe should only be MergedOld/UnmergedOld?
+		isCandidate = isCandidate || branch.Category == types.CategoryActive
+		if !isCandidate {
 			continue
 		}
 		delType := "-d (safe)"
 		if !branch.IsMerged {
 			delType = "-D (force)"
 		}
-		fmt.Printf("  - Delete '%s' (%s)\n", branch.Name, delType)
+		_, _ = fmt.Fprintf(os.Stdout, "  - Delete '%s' (%s)\n", branch.Name, delType)
 		hasLocal = true
 	}
-	if !hasLocal { fmt.Println("  (None)") }
-fmt.Println("\nRemote Deletions:")
-hasRemote := false
-for _, branch := range displayableBranches {
-	// Only print actions for selectable branches with remotes
-	if !(branch.Category == types.CategoryActive || branch.Category == types.CategoryMergedOld || branch.Category == types.CategoryUnmergedOld) {
-		continue
+	if !hasLocal {
+		_, _ = fmt.Fprintln(os.Stdout, "  (None)")
 	}
-	if branch.Remote != "" {
-		fmt.Printf("  - Delete remote '%s/%s'\n", branch.Remote, branch.Name)
+	_, _ = fmt.Fprintln(os.Stdout, "\nRemote Deletions:")
+	hasRemote := false
+	for _, branch := range displayableBranches {
+		// Only print actions for selectable branches with remotes
+		isCandidate := branch.Category == types.CategoryMergedOld || branch.Category == types.CategoryUnmergedOld
+		// Also include Active for now based on original logic
+		isCandidate = isCandidate || branch.Category == types.CategoryActive
+		if !isCandidate {
+			continue
+		}
+		if branch.Remote != "" {
+			_, _ = fmt.Fprintf(os.Stdout, "  - Delete remote '%s/%s'\n", branch.Remote, branch.Name)
 			hasRemote = true
 		}
 	}
-	if !hasRemote { fmt.Println("  (None)") }
-	fmt.Println("\n(Dry run complete, no changes made)")
+	if !hasRemote {
+		_, _ = fmt.Fprintln(os.Stdout, "  (None)")
+	}
+	_, _ = fmt.Fprintln(os.Stdout, "\n(Dry run complete, no changes made)")
 }
 
-// runQuickStatus performs a fast, non-interactive analysis and prints a summary.
+// runQuickStatus performs a fast, non-interactive analysis and prints a summary to stdout.
 func runQuickStatus(ctx context.Context) {
 	logDebugln("Running quick status...")
 
@@ -116,32 +131,36 @@ func runQuickStatus(ctx context.Context) {
 	mergedOldCount := 0
 	unmergedOldCount := 0
 	for _, branch := range analyzedBranches {
-		if branch.Category == types.CategoryMergedOld {
+		switch branch.Category {
+		case types.CategoryMergedOld:
 			mergedOldCount++
-		} else if branch.Category == types.CategoryUnmergedOld {
+		case types.CategoryUnmergedOld:
 			unmergedOldCount++
+		case types.CategoryProtected, types.CategoryActive:
+			// No action needed for these categories in the summary count
 		}
 	}
 
 	// 6. Print Summary
 	if mergedOldCount > 0 || unmergedOldCount > 0 {
-		fmt.Printf("[git-sweep] Candidates: %d merged, %d unmerged old.\n", mergedOldCount, unmergedOldCount)
+		// Break long line
+		_, _ = fmt.Fprintf(os.Stdout, "[git-sweep] Candidates: %d merged, %d unmerged old.\n",
+			mergedOldCount, unmergedOldCount)
 	} else {
 		// Print a specific message when no candidates are found
-		fmt.Println("[git-sweep] No candidate branches found.")
+		_, _ = fmt.Fprintln(os.Stdout, "[git-sweep] No candidate branches found.")
 	}
 }
 
-
 var rootCmd = &cobra.Command{
-	Use:     "git-sweep",
+	Use: "git-sweep",
 	// Version is set dynamically in init() below
-	Short:   "git-sweep helps clean up old Git branches interactively",
+	Short: "git-sweep helps clean up old Git branches interactively",
 	Long: `git-sweep analyzes your local Git repository for branches that are
 merged or haven't been updated recently. It presents these branches
 in an interactive terminal UI, allowing you to select and delete them
 safely (both locally and optionally on the remote).`,
-	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error { // Renamed args to _
 		// Get debug flag value early
 		isDebug, _ = cmd.Flags().GetBool("debug")
 
@@ -155,8 +174,9 @@ safely (both locally and optionally on the remote).`,
 		if err != nil {
 			if errors.Is(err, config.ErrConfigNotFound) {
 				// Config not found, run first-time setup
-				fmt.Println("Configuration file not found. Starting first-time setup...")
+				_, _ = fmt.Fprintln(os.Stdout, "Configuration file not found. Starting first-time setup...")
 				reader := bufio.NewReader(os.Stdin)
+				// Pass os.Stdout explicitly, FirstRunSetup now handles error checking for writes
 				appConfig, err = config.FirstRunSetup(reader, os.Stdout)
 				if err != nil {
 					return fmt.Errorf("failed during first-time setup: %w", err)
@@ -165,12 +185,13 @@ safely (both locally and optionally on the remote).`,
 				// Save the newly created config
 				savedPath, saveErr := config.SaveConfig(appConfig, customConfigPath)
 				if saveErr != nil {
+					// Warning goes to Stderr, no change needed for fmt.Fprintf
 					fmt.Fprintf(os.Stderr, "Warning: Failed to save configuration to %q: %v\n", savedPath, saveErr)
 				} else {
-					fmt.Printf("Configuration saved to %q\n", savedPath)
+					_, _ = fmt.Fprintf(os.Stdout, "Configuration saved to %q\n", savedPath)
 				}
-				fmt.Println("Setup complete. Continuing execution...")
-				err = nil
+				_, _ = fmt.Fprintln(os.Stdout, "Setup complete. Continuing execution...")
+				err = nil //nolint:ineffassign // Reset error after successful setup, this is intentional
 			} else {
 				return fmt.Errorf("failed to load configuration: %w", err)
 			}
@@ -207,7 +228,7 @@ safely (both locally and optionally on the remote).`,
 		logDebugln("Finished PersistentPreRunE.")
 		return nil // No error from pre-run
 	},
-	Run: func(cmd *cobra.Command, args []string) {
+	Run: func(cmd *cobra.Command, _ []string) { // Renamed args to _
 		// Check for quick-status flag first
 		quickStatus, _ := cmd.Flags().GetBool("quick-status")
 		if quickStatus {
@@ -246,7 +267,6 @@ safely (both locally and optionally on the remote).`,
 			logDebugln("-> Remote fetch complete.")
 		}
 
-
 		// 4. Gather Branch Data
 		logDebugln("Gathering branch data...")
 		allBranches, err := gitcmd.GetAllLocalBranchInfo(ctx)
@@ -255,7 +275,7 @@ safely (both locally and optionally on the remote).`,
 			os.Exit(1)
 		}
 		if len(allBranches) == 0 {
-			fmt.Println("No local branches found. Nothing to do.")
+			_, _ = fmt.Fprintln(os.Stdout, "No local branches found. Nothing to do.")
 			os.Exit(0)
 		}
 
@@ -273,7 +293,6 @@ safely (both locally and optionally on the remote).`,
 		}
 		logDebugf("-> Found %d local branches. Primary main branch '%s' hash: %s. Found %d merged branches.\n",
 			len(allBranches), appConfig.PrimaryMainBranch, mainHash, len(mergedBranchesMap))
-
 
 		// 5. Analyze Branches
 		logDebugln("Analyzing branches...")
@@ -302,7 +321,7 @@ safely (both locally and optionally on the remote).`,
 		}
 
 		if len(displayableBranches) == 0 {
-			fmt.Println("-> No branches found to display (excluding protected). Exiting.")
+			_, _ = fmt.Fprintln(os.Stdout, "-> No branches found to display (excluding protected). Exiting.")
 			os.Exit(0)
 		}
 		logDebugf("-> Found %d displayable (non-protected) branches.\n", len(displayableBranches))
@@ -330,7 +349,6 @@ safely (both locally and optionally on the remote).`,
 		// 9. Display Results (Handled within TUI)
 
 		logDebugln("\nExiting git-sweep.") // Final message only in debug
-
 	},
 }
 
@@ -356,11 +374,16 @@ func init() {
 	// Define flags based on PROJECT_PLAN.md Section 10
 	rootCmd.PersistentFlags().Bool("debug", false, "Enable debug logging.")
 	rootCmd.PersistentFlags().Bool("dry-run", false, "Analyze and preview actions, but do not delete.")
-	rootCmd.PersistentFlags().StringP("config", "c", "", "Path to custom configuration file (default: ~/.config/git-sweep/config.toml).")
-	rootCmd.PersistentFlags().StringP("remote", "r", "origin", "Specify the remote repository to fetch from and consider for remote deletions.")
-	rootCmd.PersistentFlags().Int("age", 0, "Override config: Max age (in days) for unmerged branches (0 uses config default).")
-	rootCmd.PersistentFlags().String("primary-main", "", "Override config: The single main branch name to check merge status against (empty uses config default).")
-	rootCmd.PersistentFlags().StringSlice("protected", []string{}, "Override config: Comma-separated list of protected branch names.")
+	rootCmd.PersistentFlags().StringP("config", "c", "",
+		"Path to custom configuration file (default: ~/.config/git-sweep/config.toml).")
+	rootCmd.PersistentFlags().StringP("remote", "r", "origin",
+		"Specify the remote repository to fetch from and consider for remote deletions.")
+	rootCmd.PersistentFlags().Int("age", 0,
+		"Override config: Max age (in days) for unmerged branches (0 uses config default).")
+	rootCmd.PersistentFlags().String("primary-main", "",
+		"Override config: The single main branch name to check merge status against (empty uses config default).")
+	rootCmd.PersistentFlags().StringSlice("protected", []string{},
+		"Override config: Comma-separated list of protected branch names.")
 	// Add quick-status flag (Bool, local to root command)
 	rootCmd.Flags().Bool("quick-status", false, "Print a quick summary of candidate branches and exit.")
 }

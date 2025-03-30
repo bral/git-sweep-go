@@ -11,7 +11,7 @@ import (
 	"github.com/bral/git-sweep-go/internal/types"
 )
 
-// Note: The setup function is defined in query_test.go but accessible within the package.
+// Note: The setupMockRunner function is defined in test_helpers_test.go
 
 func TestDeleteBranches(t *testing.T) {
 	ctx := context.Background()
@@ -25,45 +25,62 @@ func TestDeleteBranches(t *testing.T) {
 	}
 
 	expectedResultsSuccess := []types.DeleteResult{
-		{BranchName: "local-merged", IsRemote: false, Success: true, Message: "Successfully deleted", Cmd: "git branch -d local-merged"},
-		{BranchName: "local-unmerged", IsRemote: false, Success: true, Message: "Successfully deleted", Cmd: "git branch -D local-unmerged"},
-		{BranchName: "remote-branch", IsRemote: true, RemoteName: "origin", Success: true, Message: "Successfully deleted", Cmd: "git push origin --delete remote-branch"},
-		{BranchName: "fail-local", IsRemote: false, Success: false, Message: "Failed: simulated local delete error", Cmd: "git branch -d fail-local"},
-		{BranchName: "fail-remote", IsRemote: true, RemoteName: "origin", Success: false, Message: "Failed: simulated remote delete error", Cmd: "git push origin --delete fail-remote"},
+		// Successful deletions should have the hash populated
+		{
+			BranchName: "local-merged", IsRemote: false, Success: true, Message: "Successfully deleted",
+			Cmd: "git branch -d local-merged", DeletedHash: "h1",
+		},
+		{
+			BranchName: "local-unmerged", IsRemote: false, Success: true, Message: "Successfully deleted",
+			Cmd: "git branch -D local-unmerged", DeletedHash: "h2",
+		},
+		{
+			BranchName: "remote-branch", IsRemote: true, RemoteName: "origin", Success: true, Message: "Successfully deleted",
+			Cmd: "git push origin --delete remote-branch", DeletedHash: "h3",
+		},
+		// Failed deletions should have an empty hash
+		{
+			BranchName: "fail-local", IsRemote: false, Success: false, Message: "Failed: simulated local delete error",
+			Cmd: "git branch -d fail-local", DeletedHash: "",
+		},
+		{
+			BranchName: "fail-remote", IsRemote: true, RemoteName: "origin", Success: false,
+			Message: "Failed: simulated remote delete error", Cmd: "git push origin --delete fail-remote", DeletedHash: "",
+		},
 	}
 
 	expectedResultsDryRun := []types.DeleteResult{
 		{
 			BranchName: "local-merged", IsRemote: false, Success: true,
 			Message: "Dry Run: Would execute: git branch -d local-merged",
-			Cmd:     "git branch -d local-merged",
+			Cmd:     "git branch -d local-merged", DeletedHash: "", // Dry run, no hash
 		},
 		{
 			BranchName: "local-unmerged", IsRemote: false, Success: true,
 			Message: "Dry Run: Would execute: git branch -D local-unmerged",
-			Cmd:     "git branch -D local-unmerged",
+			Cmd:     "git branch -D local-unmerged", DeletedHash: "", // Dry run, no hash
 		},
 		{
 			BranchName: "remote-branch", IsRemote: true, RemoteName: "origin", Success: true,
 			Message: "Dry Run: Would execute: git push origin --delete remote-branch",
-			Cmd:     "git push origin --delete remote-branch",
+			Cmd:     "git push origin --delete remote-branch", DeletedHash: "", // Dry run, no hash
 		},
 		// Dry run always "succeeds" for these entries
 		{
 			BranchName: "fail-local", IsRemote: false, Success: true,
 			Message: "Dry Run: Would execute: git branch -d fail-local",
-			Cmd:     "git branch -d fail-local",
+			Cmd:     "git branch -d fail-local", DeletedHash: "", // Dry run, no hash
 		},
 		{
 			BranchName: "fail-remote", IsRemote: true, RemoteName: "origin", Success: true,
 			Message: "Dry Run: Would execute: git push origin --delete fail-remote",
-			Cmd:     "git push origin --delete fail-remote",
+			Cmd:     "git push origin --delete fail-remote", DeletedHash: "", // Dry run, no hash
 		},
 	}
 
 	// --- Test Case 1: Successful Deletion (with simulated failures) ---
 	t.Run("Successful Deletion", func(t *testing.T) {
-		teardown := setup(t, func(ctx context.Context, args ...string) (string, error) {
+		teardown := setupMockRunner(t, func(_ context.Context, args ...string) (string, error) { // Use setupMockRunner
 			cmdStr := strings.Join(args, " ")
 			switch {
 			case strings.HasPrefix(cmdStr, "branch -d local-merged"):
@@ -74,10 +91,12 @@ func TestDeleteBranches(t *testing.T) {
 				return "To github.com:user/repo\n - [deleted]         remote-branch", nil
 			case strings.HasPrefix(cmdStr, "branch -d fail-local"):
 				// Simulate failure by returning an error
-				return "", fmt.Errorf("git command failed: exit status 1\nargs: %v\nstderr: %s", args, "simulated local delete error")
+				errStr := "simulated local delete error"
+				return "", fmt.Errorf("git command failed: exit status 1\nargs: %v\nstderr: %s", args, errStr)
 			case strings.HasPrefix(cmdStr, "push origin --delete fail-remote"):
 				// Simulate failure by returning an error
-				return "", fmt.Errorf("git command failed: exit status 1\nargs: %v\nstderr: %s", args, "simulated remote delete error")
+				errStr := "simulated remote delete error"
+				return "", fmt.Errorf("git command failed: exit status 1\nargs: %v\nstderr: %s", args, errStr)
 			default:
 				return "", fmt.Errorf("unexpected command in mock: %v", args)
 			}
@@ -93,12 +112,14 @@ func TestDeleteBranches(t *testing.T) {
 		for i := range results {
 			expected := expectedResultsSuccess[i]
 			actual := results[i]
+			// Check all fields including the new DeletedHash
 			if actual.BranchName != expected.BranchName ||
 				actual.IsRemote != expected.IsRemote ||
 				actual.RemoteName != expected.RemoteName ||
 				actual.Success != expected.Success ||
 				actual.Cmd != expected.Cmd ||
-				// Only check prefix for error messages
+				actual.DeletedHash != expected.DeletedHash || // Check the hash
+				// Only check prefix for error messages, as the full message might contain variable parts
 				(actual.Success != expected.Success && !strings.HasPrefix(actual.Message, "Failed: simulated")) {
 				t.Errorf("Result mismatch at index %d.\nGot:  %+v\nWant: %+v", i, actual, expected)
 			}
@@ -108,7 +129,7 @@ func TestDeleteBranches(t *testing.T) {
 	// --- Test Case 2: Dry Run ---
 	t.Run("Dry Run", func(t *testing.T) {
 		// The mock runner should NOT be called in dry run mode
-		teardown := setup(t, func(ctx context.Context, args ...string) (string, error) {
+		teardown := setupMockRunner(t, func(_ context.Context, args ...string) (string, error) { // Use setupMockRunner
 			t.Errorf("Runner should not be called during dry run, called with: %v", args)
 			return "", errors.New("runner called unexpectedly")
 		})
@@ -124,7 +145,7 @@ func TestDeleteBranches(t *testing.T) {
 	// --- Test Case 3: Empty Input Slice ---
 	t.Run("Empty Input Slice", func(t *testing.T) {
 		// Runner should not be called
-		teardown := setup(t, func(ctx context.Context, args ...string) (string, error) {
+		teardown := setupMockRunner(t, func(_ context.Context, args ...string) (string, error) { // Use setupMockRunner
 			t.Errorf("Runner should not be called with empty input, called with: %v", args)
 			return "", errors.New("runner called unexpectedly")
 		})
@@ -156,7 +177,7 @@ func TestDeleteBranches(t *testing.T) {
 		}
 
 		// Runner should not be called
-		teardown := setup(t, func(ctx context.Context, args ...string) (string, error) {
+		teardown := setupMockRunner(t, func(_ context.Context, args ...string) (string, error) { // Use setupMockRunner
 			t.Errorf("Runner should not be called for invalid input, called with: %v", args)
 			return "", errors.New("runner called unexpectedly")
 		})
@@ -211,7 +232,7 @@ func TestDeleteBranches(t *testing.T) {
 			}, // Expect raw error if stderr part is empty
 		}
 
-		teardown := setup(t, func(ctx context.Context, args ...string) (string, error) {
+		teardown := setupMockRunner(t, func(_ context.Context, args ...string) (string, error) { // Use setupMockRunner
 			cmdStr := strings.Join(args, " ")
 			switch {
 			case strings.HasPrefix(cmdStr, "branch -d err-no-stderr"):
