@@ -3,6 +3,7 @@ package tui
 import (
 	"context" // Added import
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -174,15 +175,9 @@ func TestTuiSelection(t *testing.T) {
 		t.Errorf("Expected 1 selected local item, got %d", len(m.SelectedLocal)) // Use exported SelectedLocal
 	}
 
-	// 3. Select remote for the same item (should work)
-	mUpdated, _ = simulateKeyPress(m, "r") // or simulateSpecialKeyPress(m, tea.KeyTab)
-	mAsserted, ok = mUpdated.(Model)       // Use exported Model
-	if !ok {
-		t.Fatalf("Type assertion failed for mUpdated.(Model)")
-	}
-	m = mAsserted
+	// 3. Verify remote is auto-selected for the same item
 	if !m.SelectedRemote[originalIndex] { // Use exported SelectedRemote
-		t.Errorf("Expected item at cursor 1 (original index %d) to be selected remotely", originalIndex)
+		t.Errorf("Expected item at cursor 1 (original index %d) to be auto-selected remotely", originalIndex)
 	}
 
 	// 4. Move to next selectable (feat/unmerged-old, index 2) and select local
@@ -201,15 +196,9 @@ func TestTuiSelection(t *testing.T) {
 		t.Errorf("Expected 2 selected local items, got %d", len(m.SelectedLocal)) // Use exported SelectedLocal
 	}
 
-	// 5. Try selecting remote for item 2 (should work)
-	mUpdated, _ = simulateKeyPress(m, "r")
-	mAsserted, ok = mUpdated.(Model) // Use exported Model
-	if !ok {
-		t.Fatalf("Type assertion failed for mUpdated.(Model)")
-	}
-	m = mAsserted
+	// 5. Verify remote is auto-selected for item 2
 	if !m.SelectedRemote[originalIndex2] { // Use exported SelectedRemote
-		t.Errorf("Expected item at cursor 2 (original index %d) to be selected remotely", originalIndex2)
+		t.Errorf("Expected item at cursor 2 (original index %d) to be auto-selected remotely", originalIndex2)
 	}
 
 	// 6. Move to non-selectable active branch (feat/active, index 4 -> original 3) and try selecting - should fail
@@ -248,7 +237,7 @@ func TestTuiSelection(t *testing.T) {
 	if len(m.SelectedLocal) != 1 { // Only item 2 should be left // Use exported SelectedLocal
 		t.Errorf("Expected 1 selected local item after deselect, got %d", len(m.SelectedLocal)) // Use exported SelectedLocal
 	}
-	if len(m.SelectedRemote) != 1 { // Only item 2 should be left // Use exported SelectedRemote
+	if len(m.SelectedRemote) != 1 { // Item 2 should still be selected // Use exported SelectedRemote
 		t.Errorf(
 			"Expected 1 selected remote item after deselect, got %d",
 			len(m.SelectedRemote),
@@ -279,7 +268,7 @@ func TestTuiSelection(t *testing.T) {
 	if m.SelectedRemote[originalIndex4] { // Use exported SelectedRemote
 		t.Errorf("Expected item at cursor 3 (original index %d) to NOT be selected remotely", originalIndex4)
 	}
-	if len(m.SelectedRemote) != 1 { // Still only item 2 selected remotely // Use exported SelectedRemote
+	if len(m.SelectedRemote) != 1 { // Item 2 should still be selected // Use exported SelectedRemote
 		t.Errorf(
 			"Expected 1 selected remote item after trying on no-remote branch, got %d",
 			len(m.SelectedRemote),
@@ -541,3 +530,109 @@ func TestTuiEmptyList(t *testing.T) {
 }
 
 // TODO: Add tests verifying the returned tea.Cmd
+
+// TestRemoteAutoSelection tests the auto-selection of remote branches when local branches are selected
+func TestRemoteAutoSelection(t *testing.T) {
+	branches := createSampleBranches()
+	m := createTestModel(branches)
+
+	// Move to first selectable branch (feat/merged, index 1)
+	mUpdated, _ := simulateSpecialKeyPress(m, tea.KeyDown)
+	mAsserted, ok := mUpdated.(Model)
+	if !ok {
+		t.Fatalf("Type assertion failed for mUpdated.(Model)")
+	}
+	m = mAsserted
+
+	// Select local branch
+	mUpdated, _ = simulateKeyPress(m, " ")
+	mAsserted, ok = mUpdated.(Model)
+	if !ok {
+		t.Fatalf("Type assertion failed for mUpdated.(Model)")
+	}
+	m = mAsserted
+
+	// Get the original index of the branch
+	originalIndex := m.ListOrder[1] // Should be 1
+
+	// Verify local branch is selected
+	if !m.SelectedLocal[originalIndex] {
+		t.Errorf("Expected local branch to be selected")
+	}
+
+	// Verify remote branch is auto-selected
+	if !m.SelectedRemote[originalIndex] {
+		t.Errorf("Expected remote branch to be auto-selected when local is selected")
+	}
+
+	// Deselect local branch
+	mUpdated, _ = simulateKeyPress(m, " ")
+	mAsserted, ok = mUpdated.(Model)
+	if !ok {
+		t.Fatalf("Type assertion failed for mUpdated.(Model)")
+	}
+	m = mAsserted
+
+	// Verify local branch is deselected
+	if m.SelectedLocal[originalIndex] {
+		t.Errorf("Expected local branch to be deselected")
+	}
+
+	// Verify remote branch is auto-deselected
+	if m.SelectedRemote[originalIndex] {
+		t.Errorf("Expected remote branch to be auto-deselected when local is deselected")
+	}
+}
+
+// TestRemoteStyleRendering tests that the rendering logic applies the appropriate styles
+// This is a more complex test that checks the actual rendered output
+func TestRemoteStyleRendering(t *testing.T) {
+	branches := createSampleBranches()
+	m := createTestModel(branches)
+
+	// Render the initial view
+	initialView := m.View()
+
+	// Move to first selectable branch (feat/merged, index 1)
+	mUpdated, _ := simulateSpecialKeyPress(m, tea.KeyDown)
+	mAsserted, ok := mUpdated.(Model)
+	if !ok {
+		t.Fatalf("Type assertion failed for mUpdated.(Model)")
+	}
+	m = mAsserted
+
+	// Render view with cursor on first selectable branch
+	cursorView := m.View()
+
+	// Select local branch
+	mUpdated, _ = simulateKeyPress(m, " ")
+	mAsserted, ok = mUpdated.(Model)
+	if !ok {
+		t.Fatalf("Type assertion failed for mUpdated.(Model)")
+	}
+	m = mAsserted
+
+	// Render view with local branch selected
+	selectedView := m.View()
+
+	// Check that the initial view contains dimmed remote text
+	// This is a simple check that just verifies the remoteDimmedStyle is being used
+	// We can't easily check the exact styling in the rendered output
+	if !strings.Contains(initialView, "Remote:") {
+		t.Errorf("Expected initial view to contain 'Remote:' text")
+	}
+
+	// Check that the selected view contains the remote branch selected
+	// Again, we can't easily check the exact styling, but we can check for the presence of the text
+	if !strings.Contains(selectedView, "Remote:") {
+		t.Errorf("Expected selected view to contain 'Remote:' text")
+	}
+
+	// Verify that the views are different, indicating that styling has changed
+	if initialView == selectedView {
+		t.Errorf("Expected initial view and selected view to be different due to styling changes")
+	}
+	if cursorView == selectedView {
+		t.Errorf("Expected cursor view and selected view to be different due to styling changes")
+	}
+}

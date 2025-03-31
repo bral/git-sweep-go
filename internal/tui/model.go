@@ -29,8 +29,16 @@ var (
 	forceDeleteStyle   = errorStyle.Bold(true).Reverse(true)                   // Style for force delete warnings
 	protectedStyle     = lipgloss.NewStyle().Faint(true)                       // Style for protected branches ONLY
 	// Style for active branches (faint, unselectable)
-	activeStyle      = helpStyle.Faint(true)
-	separatorStyle   = helpStyle.Faint(true) // Style for separator line
+	activeStyle    = helpStyle.Faint(true)
+	separatorStyle = helpStyle.Faint(true) // Style for separator line
+	// New styles for remote selection states
+	remoteDimmedStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("240")).
+				Faint(true) // Dimmed style for unavailable remotes
+	remoteNoneStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240")).
+			Faint(true).
+			Italic(true) // Style for non-existent remotes
 	categoryStyleMap = map[types.BranchCategory]lipgloss.Style{
 		// Protected category is handled separately (keyBranches)
 		types.CategoryActive:      activeStyle,  // Style for the label text only
@@ -247,6 +255,12 @@ func (m Model) updateSelecting(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				delete(m.SelectedRemote, originalIndex) // Also deselect remote
 			} else {
 				m.SelectedLocal[originalIndex] = true
+
+				// Auto-select remote if it exists
+				branch := m.AllAnalyzedBranches[originalIndex]
+				if branch.Remote != "" {
+					m.SelectedRemote[originalIndex] = true
+				}
 			}
 		}
 
@@ -368,33 +382,84 @@ func (m Model) renderSuggestedBranches(b *strings.Builder, itemIndex *int) {
 			localCheckbox = selectedStyle.Render("[x]")
 		}
 
+		// Determine if local is selected (affects remote styling)
+		localSelected := false
+		if _, ok := m.SelectedLocal[originalIndex]; ok {
+			localSelected = true
+		}
+
+		// Remote branch rendering with conditional styling
 		remoteCheckbox := checkboxUnselectable
 		remoteInfo := remoteNone
+		var remoteText string
+
 		if branch.Remote != "" {
 			remoteCheckbox = checkboxUnchecked
 			remoteInfo = fmt.Sprintf("(%s/%s)", branch.Remote, branch.Name)
 			if _, ok := m.SelectedRemote[originalIndex]; ok {
 				remoteCheckbox = selectedStyle.Render("[x]")
 			}
+
+			// Apply appropriate style based on local selection
+			if localSelected {
+				// Local selected, remote available at full brightness
+				remoteText = fmt.Sprintf("Remote: %s %s", remoteCheckbox, remoteInfo)
+			} else {
+				// Local not selected, remote dimmed
+				remoteText = remoteDimmedStyle.Render(fmt.Sprintf("Remote: %s %s", remoteCheckbox, remoteInfo))
+			}
+		} else {
+			// No remote exists, always dimmed
+			remoteText = remoteNoneStyle.Render(fmt.Sprintf("Remote: %s %s", remoteCheckbox, remoteInfo))
 		}
 
 		categoryStyle := categoryStyleMap[branch.Category]
 		categoryText := categoryStyle.Render("(" + string(branch.Category) + ")")
 
-		line := fmt.Sprintf("Local: %s %s | Remote: %s %s %s",
-			localCheckbox, branch.Name, remoteCheckbox, remoteInfo, categoryText)
+		// Construct the line with appropriate styling for each part
+		line := fmt.Sprintf("Local: %s %s | %s %s",
+			localCheckbox, branch.Name, remoteText, categoryText)
 
 		// Apply styling based on cursor and category
 		if m.Cursor == *itemIndex {
 			if branch.Category == types.CategoryUnmergedOld {
-				b.WriteString(cursor + " " + warningStyle.Render(selectedStyle.Render(line)) + "\n")
+				// For unmerged branches, apply warning style
+				// But preserve the remote dimming/brightening
+				parts := strings.SplitN(line, " | ", 2)
+				if len(parts) == 2 {
+					localPart := warningStyle.Render(selectedStyle.Render(parts[0]))
+					// Don't apply warning style to the remote part to preserve dimming
+					b.WriteString(cursor + " " + localPart + " | " + parts[1] + "\n")
+				} else {
+					// Fallback if split fails
+					b.WriteString(cursor + " " + warningStyle.Render(selectedStyle.Render(line)) + "\n")
+				}
 			} else {
-				b.WriteString(cursor + " " + selectedStyle.Render(line) + "\n")
+				// For merged branches, apply selected style to local part only
+				parts := strings.SplitN(line, " | ", 2)
+				if len(parts) == 2 {
+					localPart := selectedStyle.Render(parts[0])
+					// Don't apply selected style to the remote part to preserve dimming
+					b.WriteString(cursor + " " + localPart + " | " + parts[1] + "\n")
+				} else {
+					// Fallback if split fails
+					b.WriteString(cursor + " " + selectedStyle.Render(line) + "\n")
+				}
 			}
 		} else {
 			if branch.Category == types.CategoryUnmergedOld {
-				b.WriteString(cursor + " " + warningStyle.Render(line) + "\n")
+				// For unmerged branches not under cursor
+				parts := strings.SplitN(line, " | ", 2)
+				if len(parts) == 2 {
+					localPart := warningStyle.Render(parts[0])
+					// Don't apply warning style to the remote part to preserve dimming
+					b.WriteString(cursor + " " + localPart + " | " + parts[1] + "\n")
+				} else {
+					// Fallback if split fails
+					b.WriteString(cursor + " " + warningStyle.Render(line) + "\n")
+				}
 			} else {
+				// Regular branches not under cursor
 				b.WriteString(cursor + " " + line + "\n")
 			}
 		}
@@ -437,7 +502,7 @@ func (m Model) renderSelectingState(b *strings.Builder) {
 	if m.DryRun {
 		title = warningStyle.Render("[Dry Run] ") + title
 	}
-	title += helpStyle.Render(" (Remote requires local)")
+	title += helpStyle.Render(" (Remote auto-selected when local is selected)")
 	b.WriteString(title + "\n\n")
 
 	itemIndex := 0 // Tracks the overall item index for cursor comparison
