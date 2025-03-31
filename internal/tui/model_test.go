@@ -323,9 +323,23 @@ func TestPagination(t *testing.T) {
 		t.Errorf("Expected initial viewport start to be 0, got %d", m.Viewports[SectionSuggested].Start)
 	}
 
-	// Test page down
-	mUpdated, _ := simulateSpecialKeyPress(m, tea.KeyPgDown)
+	// First, move the cursor to the suggested section
+	// The first branch is a protected branch, so we need to move down to the first suggested branch
+	mUpdated, _ := simulateSpecialKeyPress(m, tea.KeyDown)
 	mAsserted, ok := mUpdated.(Model)
+	if !ok {
+		t.Fatalf("Type assertion failed for mUpdated.(Model)")
+	}
+	m = mAsserted
+
+	// Verify the cursor is in the suggested section
+	if m.Cursor != 1 {
+		t.Fatalf("Expected cursor to be at position 1 (first suggested branch), got %d", m.Cursor)
+	}
+
+	// Now test page down
+	mUpdated, _ = simulateSpecialKeyPress(m, tea.KeyPgDown)
+	mAsserted, ok = mUpdated.(Model)
 	if !ok {
 		t.Fatalf("Type assertion failed for mUpdated.(Model)")
 	}
