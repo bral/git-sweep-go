@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context" // Added import
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -65,6 +66,41 @@ func createSampleBranches() []types.AnalyzedBranch {
 			Category:   types.CategoryMergedOld, IsMerged: true,
 		},
 	}
+}
+
+// Helper function to create a large number of branches for testing pagination
+func createManyBranches(count int) []types.AnalyzedBranch {
+	now := time.Now()
+	ninetyDaysAgo := now.AddDate(0, 0, -91)
+
+	// Start with a protected branch
+	branches := []types.AnalyzedBranch{
+		{
+			BranchInfo: types.BranchInfo{Name: "main", LastCommitDate: now, Remote: "origin"},
+			Category:   types.CategoryProtected, IsCurrent: true, IsProtected: true,
+		},
+	}
+
+	// Add many suggested branches
+	for i := 0; i < count; i++ {
+		branches = append(branches, types.AnalyzedBranch{
+			BranchInfo: types.BranchInfo{
+				Name:           fmt.Sprintf("branch-%d", i),
+				LastCommitDate: ninetyDaysAgo,
+				Remote:         "origin",
+			},
+			Category: types.CategoryMergedOld,
+			IsMerged: true,
+		})
+	}
+
+	// Add an active branch at the end
+	branches = append(branches, types.AnalyzedBranch{
+		BranchInfo: types.BranchInfo{Name: "develop", LastCommitDate: now, Remote: "origin"},
+		Category:   types.CategoryActive, IsMerged: false,
+	})
+
+	return branches
 }
 
 func TestTuiNavigation(t *testing.T) {
@@ -273,6 +309,83 @@ func TestTuiSelection(t *testing.T) {
 			"Expected 1 selected remote item after trying on no-remote branch, got %d",
 			len(m.SelectedRemote),
 		)
+	}
+}
+
+// TestPagination tests the pagination functionality
+func TestPagination(t *testing.T) {
+	// Create a model with many branches to test pagination
+	branches := createManyBranches(20)
+	m := createTestModel(branches)
+
+	// Check initial viewport state
+	if m.Viewports[SectionSuggested].Start != 0 {
+		t.Errorf("Expected initial viewport start to be 0, got %d", m.Viewports[SectionSuggested].Start)
+	}
+
+	// Test page down
+	mUpdated, _ := simulateSpecialKeyPress(m, tea.KeyPgDown)
+	mAsserted, ok := mUpdated.(Model)
+	if !ok {
+		t.Fatalf("Type assertion failed for mUpdated.(Model)")
+	}
+	m = mAsserted
+
+	// Viewport should have moved down
+	if m.Viewports[SectionSuggested].Start <= 0 {
+		t.Errorf("Expected viewport start to increase after page down, got %d", m.Viewports[SectionSuggested].Start)
+	}
+
+	// Test page down again
+	mUpdated, _ = simulateSpecialKeyPress(m, tea.KeyPgDown)
+	mAsserted, ok = mUpdated.(Model)
+	if !ok {
+		t.Fatalf("Type assertion failed for mUpdated.(Model)")
+	}
+	m = mAsserted
+
+	// Viewport should have moved down further
+	previousStart := m.Viewports[SectionSuggested].Start
+
+	// Test page up
+	mUpdated, _ = simulateSpecialKeyPress(m, tea.KeyPgUp)
+	mAsserted, ok = mUpdated.(Model)
+	if !ok {
+		t.Fatalf("Type assertion failed for mUpdated.(Model)")
+	}
+	m = mAsserted
+
+	// Viewport should have moved up
+	if m.Viewports[SectionSuggested].Start >= previousStart {
+		t.Errorf("Expected viewport start to decrease after page up, got %d", m.Viewports[SectionSuggested].Start)
+	}
+
+	// Test home key
+	mUpdated, _ = simulateSpecialKeyPress(m, tea.KeyHome)
+	mAsserted, ok = mUpdated.(Model)
+	if !ok {
+		t.Fatalf("Type assertion failed for mUpdated.(Model)")
+	}
+	m = mAsserted
+
+	// Viewport should be at the start
+	if m.Viewports[SectionSuggested].Start != 0 {
+		t.Errorf("Expected viewport start to be 0 after home key, got %d", m.Viewports[SectionSuggested].Start)
+	}
+
+	// Test end key
+	mUpdated, _ = simulateSpecialKeyPress(m, tea.KeyEnd)
+	mAsserted, ok = mUpdated.(Model)
+	if !ok {
+		t.Fatalf("Type assertion failed for mUpdated.(Model)")
+	}
+	m = mAsserted
+
+	// Viewport should be at the end
+	maxStart := m.Viewports[SectionSuggested].Total - m.Viewports[SectionSuggested].Size
+	if maxStart > 0 && m.Viewports[SectionSuggested].Start < maxStart {
+		t.Errorf("Expected viewport start to be at max (%d) after end key, got %d",
+			maxStart, m.Viewports[SectionSuggested].Start)
 	}
 }
 

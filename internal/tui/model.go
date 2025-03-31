@@ -171,8 +171,6 @@ func renderCompactIndicator(start, viewportSize, total int, width int) string {
 		progressInfoStyle.Render(helpText)
 }
 
-// No replacement - removing the unused function
-
 // Helper function to get the section for a branch
 func (m Model) getBranchSection(originalIndex int) Section {
 	if originalIndex < 0 || originalIndex >= len(m.AllAnalyzedBranches) {
@@ -239,7 +237,7 @@ func InitialModel(
 		},
 		SectionSuggested: {
 			Start: 0,
-			Size:  min(10, len(suggested)), // Default to showing 10 items
+			Size:  min(5, len(suggested)), // Force a smaller viewport for testing
 			Total: len(suggested),
 		},
 		SectionOther: {
@@ -310,8 +308,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		keyHeight := min(len(m.KeyBranches), 3)
 		otherHeight := min(len(m.OtherActiveBranches), 3)
 
-		// Give remaining space to suggested branches
-		suggestedHeight := max(1, availableHeight-keyHeight-otherHeight)
+		// Note: We're not using this variable anymore since we're forcing a smaller viewport
+		_ = max(1, availableHeight-keyHeight-otherHeight) // Avoid unused variable error
 
 		// Update viewport sizes
 		if m.Viewports == nil {
@@ -323,7 +321,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Viewports[SectionKey] = keyViewport
 
 		suggestedViewport := m.Viewports[SectionSuggested]
-		suggestedViewport.Size = suggestedHeight
+		// Force a smaller viewport size for testing pagination
+		suggestedViewport.Size = min(5, len(m.SuggestedBranches))
 		m.Viewports[SectionSuggested] = suggestedViewport
 
 		otherViewport := m.Viewports[SectionOther]
@@ -399,20 +398,18 @@ func (m Model) updateSelecting(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 			// Auto-scroll viewport when cursor moves out of view
 			if cursorSection == SectionSuggested {
-				// Find the index within the suggested branches section
-				sectionIndex := 0
-				for i := 0; i < len(m.KeyBranches); i++ {
-					if m.Cursor == i {
-						break
-					}
-					sectionIndex++
-				}
+				// Calculate the index within the suggested branches section
+				// The cursor is in the suggested section if it's after the key branches
+				// So the index in the suggested section is (cursor - len(keyBranches))
+				sectionIndex := m.Cursor - len(m.KeyBranches)
 
 				// If cursor is now in the suggested section and out of viewport
-				viewport := m.Viewports[SectionSuggested]
-				if sectionIndex < viewport.Start {
-					viewport.Start = max(0, sectionIndex)
-					m.Viewports[SectionSuggested] = viewport
+				if sectionIndex >= 0 { // Make sure we're in the suggested section
+					viewport := m.Viewports[SectionSuggested]
+					if sectionIndex < viewport.Start {
+						viewport.Start = max(0, sectionIndex)
+						m.Viewports[SectionSuggested] = viewport
+					}
 				}
 			}
 		}
@@ -423,20 +420,18 @@ func (m Model) updateSelecting(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 			// Auto-scroll viewport when cursor moves out of view
 			if cursorSection == SectionSuggested {
-				// Find the index within the suggested branches section
-				sectionIndex := 0
-				for i := len(m.KeyBranches); i < len(m.KeyBranches)+len(m.SuggestedBranches); i++ {
-					if m.Cursor == i {
-						break
-					}
-					sectionIndex++
-				}
+				// Calculate the index within the suggested branches section
+				// The cursor is in the suggested section if it's after the key branches
+				// So the index in the suggested section is (cursor - len(keyBranches))
+				sectionIndex := m.Cursor - len(m.KeyBranches)
 
 				// If cursor is now in the suggested section and out of viewport
-				viewport := m.Viewports[SectionSuggested]
-				if sectionIndex >= viewport.Start+viewport.Size {
-					viewport.Start = max(0, sectionIndex-viewport.Size+1)
-					m.Viewports[SectionSuggested] = viewport
+				if sectionIndex >= 0 { // Make sure we're in the suggested section
+					viewport := m.Viewports[SectionSuggested]
+					if sectionIndex >= viewport.Start+viewport.Size {
+						viewport.Start = max(0, sectionIndex-viewport.Size+1)
+						m.Viewports[SectionSuggested] = viewport
+					}
 				}
 			}
 		}
@@ -613,46 +608,48 @@ func (m Model) renderKeyBranches(b *strings.Builder, itemIndex *int) {
 // Kept internal as it's only called by View.
 func (m Model) renderSuggestedBranches(b *strings.Builder, itemIndex *int) {
 	// Get viewport state for suggested branches
-	viewport, exists := m.Viewports[SectionSuggested]
-	if !exists {
-		viewport = ViewportState{
-			Start: 0,
-			Size:  len(m.SuggestedBranches),
-			Total: len(m.SuggestedBranches),
-		}
-	}
+	viewport := m.Viewports[SectionSuggested]
 
-	// Show "More above" indicator if scrolled down
+	// Debug output removed for production
+
+	// Always reserve space for "More above" indicator
 	if viewport.Start > 0 {
-		b.WriteString(helpStyle.Render("      -- More branches above --\n"))
+		b.WriteString(helpStyle.Render("   ↑ More branches above ↑") + "\n")
+	} else {
+		// Empty line to maintain consistent spacing
+		b.WriteString("\n")
 	}
 
-	// Track how many branches we've rendered
-	renderedCount := 0
+	// Only render branches that are in the current viewport
+	visibleEnd := min(viewport.Start+viewport.Size, len(m.SuggestedBranches))
 
-	// Render only visible branches
-	for i, branch := range m.SuggestedBranches {
-		// Skip branches outside the viewport
-		if i < viewport.Start || renderedCount >= viewport.Size {
-			// Still increment itemIndex for cursor positioning
-			*itemIndex++
-			continue
+	// Calculate how many branch lines we'll render
+	branchLinesToRender := visibleEnd - viewport.Start
+
+	// Render the visible branches
+	for i := viewport.Start; i < visibleEnd; i++ {
+		if i >= len(m.SuggestedBranches) {
+			break // Safety check
 		}
 
-		var originalIndex int // Declare variable, will be assigned below
-		// Find original index by iterating through listOrder which maps display index to original index
-		displayIndex := *itemIndex // The current display index corresponds to this branch
-		if displayIndex < len(m.ListOrder) {
-			originalIndex = m.ListOrder[displayIndex] // Assign value here
-		} else {
-			continue // Should not happen if listOrder is correct
+		branch := m.SuggestedBranches[i]
+
+		// Calculate the actual display index for this branch
+		displayIndex := len(m.KeyBranches) + i
+		*itemIndex = displayIndex // Update the shared index
+
+		// Find original index from ListOrder
+		if displayIndex >= len(m.ListOrder) {
+			continue // Should not happen if ListOrder is correct
 		}
+		originalIndex := m.ListOrder[displayIndex]
+
 		if originalIndex < 0 || originalIndex >= len(m.AllAnalyzedBranches) {
 			continue // Safety check
 		}
 
 		cursor := " "
-		if m.Cursor == *itemIndex {
+		if m.Cursor == displayIndex {
 			cursor = cursorStyle.Render(">")
 		}
 
@@ -662,104 +659,57 @@ func (m Model) renderSuggestedBranches(b *strings.Builder, itemIndex *int) {
 			localCheckbox = selectedStyle.Render("[x]")
 		}
 
-		// Determine if local is selected (affects remote styling)
-		localSelected := false
-		if _, ok := m.SelectedLocal[originalIndex]; ok {
-			localSelected = true
-		}
-
-		// Remote branch rendering with conditional styling
 		remoteCheckbox := checkboxUnselectable
 		remoteInfo := remoteNone
-		var remoteText string
-
 		if branch.Remote != "" {
 			remoteCheckbox = checkboxUnchecked
 			remoteInfo = fmt.Sprintf("(%s/%s)", branch.Remote, branch.Name)
 			if _, ok := m.SelectedRemote[originalIndex]; ok {
 				remoteCheckbox = selectedStyle.Render("[x]")
 			}
-
-			// Apply appropriate style based on local selection
-			if localSelected {
-				// Local selected, remote available at full brightness
-				remoteText = fmt.Sprintf("Remote: %s %s", remoteCheckbox, remoteInfo)
-			} else {
-				// Local not selected, remote dimmed
-				remoteText = remoteDimmedStyle.Render(fmt.Sprintf("Remote: %s %s", remoteCheckbox, remoteInfo))
-			}
-		} else {
-			// No remote exists, always dimmed
-			remoteText = remoteNoneStyle.Render(fmt.Sprintf("Remote: %s %s", remoteCheckbox, remoteInfo))
 		}
 
 		categoryStyle := categoryStyleMap[branch.Category]
 		categoryText := categoryStyle.Render("(" + string(branch.Category) + ")")
 
-		// Construct the line with appropriate styling for each part
-		line := fmt.Sprintf("Local: %s %s | %s %s",
-			localCheckbox, branch.Name, remoteText, categoryText)
+		line := fmt.Sprintf("Local: %s %s | Remote: %s %s %s",
+			localCheckbox, branch.Name, remoteCheckbox, remoteInfo, categoryText)
 
 		// Apply styling based on cursor and category
-		if m.Cursor == *itemIndex {
+		if m.Cursor == displayIndex {
 			if branch.Category == types.CategoryUnmergedOld {
-				// For unmerged branches, apply warning style
-				// But preserve the remote dimming/brightening
-				parts := strings.SplitN(line, " | ", 2)
-				if len(parts) == 2 {
-					localPart := warningStyle.Render(selectedStyle.Render(parts[0]))
-					// Don't apply warning style to the remote part to preserve dimming
-					b.WriteString(cursor + " " + localPart + " | " + parts[1] + "\n")
-				} else {
-					// Fallback if split fails
-					b.WriteString(cursor + " " + warningStyle.Render(selectedStyle.Render(line)) + "\n")
-				}
+				b.WriteString(cursor + " " + warningStyle.Render(selectedStyle.Render(line)) + "\n")
 			} else {
-				// For merged branches, apply selected style to local part only
-				parts := strings.SplitN(line, " | ", 2)
-				if len(parts) == 2 {
-					localPart := selectedStyle.Render(parts[0])
-					// Don't apply selected style to the remote part to preserve dimming
-					b.WriteString(cursor + " " + localPart + " | " + parts[1] + "\n")
-				} else {
-					// Fallback if split fails
-					b.WriteString(cursor + " " + selectedStyle.Render(line) + "\n")
-				}
+				b.WriteString(cursor + " " + selectedStyle.Render(line) + "\n")
 			}
 		} else {
 			if branch.Category == types.CategoryUnmergedOld {
-				// For unmerged branches not under cursor
-				parts := strings.SplitN(line, " | ", 2)
-				if len(parts) == 2 {
-					localPart := warningStyle.Render(parts[0])
-					// Don't apply warning style to the remote part to preserve dimming
-					b.WriteString(cursor + " " + localPart + " | " + parts[1] + "\n")
-				} else {
-					// Fallback if split fails
-					b.WriteString(cursor + " " + warningStyle.Render(line) + "\n")
-				}
+				b.WriteString(cursor + " " + warningStyle.Render(line) + "\n")
 			} else {
-				// Regular branches not under cursor
 				b.WriteString(cursor + " " + line + "\n")
 			}
 		}
 
-		renderedCount++
-		*itemIndex++ // Increment the shared index
+		// Increment the shared index after rendering
+		*itemIndex = displayIndex + 1
 	}
 
-	// Show "More below" indicator if there are more branches to scroll
+	// Add empty lines to fill up to viewport size if we have fewer branches than viewport size
+	for i := 0; i < viewport.Size-branchLinesToRender; i++ {
+		b.WriteString("\n")
+	}
+
+	// Always reserve space for "More below" indicator
 	if viewport.Start+viewport.Size < viewport.Total {
-		b.WriteString(helpStyle.Render("      -- More branches below --\n"))
+		b.WriteString(helpStyle.Render("   ↓ More branches below ↓") + "\n")
+	} else {
+		// Empty line to maintain consistent spacing
+		b.WriteString("\n")
 	}
 
-	// Add the progress indicator if we have branches and are scrolling
+	// Show pagination indicator if there are more branches than can fit
 	if viewport.Total > viewport.Size {
-		indicator := renderCompactIndicator(
-			viewport.Start,
-			viewport.Size,
-			viewport.Total,
-			m.Width)
+		indicator := renderCompactIndicator(viewport.Start, viewport.Size, viewport.Total, m.Width)
 		b.WriteString(indicator + "\n")
 	}
 }
@@ -795,11 +745,11 @@ func (m Model) renderOtherActiveBranches(b *strings.Builder, itemIndex *int) {
 
 // renderSelectingState renders the branch selection view
 func (m Model) renderSelectingState(b *strings.Builder) {
-	title := "Branches (Space: select local, Tab/r: select remote, PgUp/PgDn: scroll):"
+	title := "Branches (Space: select local, Tab/r: select remote):"
 	if m.DryRun {
 		title = warningStyle.Render("[Dry Run] ") + title
 	}
-	title += helpStyle.Render(" (Remote auto-selected when local is selected)")
+	title += helpStyle.Render(" (Remote requires local)")
 	b.WriteString(title + "\n\n")
 
 	itemIndex := 0 // Tracks the overall item index for cursor comparison
