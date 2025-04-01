@@ -337,6 +337,12 @@ safely (both locally and optionally on the remote).`,
 		// 7. Launch Interactive TUI (only if not dry run)
 		logDebugln("Launching TUI...")
 		// Pass only displayable branches to the TUI model
+		// Debug: Log branches being passed to TUI
+		logDebugf("Branches being passed to TUI InitialModel (%d total):\n", len(displayableBranches))
+		for i, b := range displayableBranches {
+			logDebugf("  [%d] Name: %s, Category: %s, IsMerged: %t\n", i, b.Name, b.Category, b.IsMerged)
+		}
+
 		initialModel := tui.InitialModel(ctx, displayableBranches, dryRun) // dryRun will be false here
 		p := tea.NewProgram(initialModel)
 

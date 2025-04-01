@@ -69,23 +69,24 @@ func createSampleBranches() []types.AnalyzedBranch {
 }
 
 // Helper function to create a large number of branches for testing pagination
-func createManyBranches(count int) []types.AnalyzedBranch {
+func createManyBranches(suggestedCount, activeCount int) []types.AnalyzedBranch {
 	now := time.Now()
 	ninetyDaysAgo := now.AddDate(0, 0, -91)
+	sixtyDaysAgo := now.AddDate(0, 0, -60) // For active branches
 
 	// Start with a protected branch
 	branches := []types.AnalyzedBranch{
-		{
+		{ // Original Index 0
 			BranchInfo: types.BranchInfo{Name: "main", LastCommitDate: now, Remote: "origin"},
 			Category:   types.CategoryProtected, IsCurrent: true, IsProtected: true,
 		},
 	}
 
 	// Add many suggested branches
-	for i := 0; i < count; i++ {
-		branches = append(branches, types.AnalyzedBranch{
+	for i := 0; i < suggestedCount; i++ {
+		branches = append(branches, types.AnalyzedBranch{ // Original Index 1 to suggestedCount
 			BranchInfo: types.BranchInfo{
-				Name:           fmt.Sprintf("branch-%d", i),
+				Name:           fmt.Sprintf("suggested-%d", i),
 				LastCommitDate: ninetyDaysAgo,
 				Remote:         "origin",
 			},
@@ -94,11 +95,18 @@ func createManyBranches(count int) []types.AnalyzedBranch {
 		})
 	}
 
-	// Add an active branch at the end
-	branches = append(branches, types.AnalyzedBranch{
-		BranchInfo: types.BranchInfo{Name: "develop", LastCommitDate: now, Remote: "origin"},
-		Category:   types.CategoryActive, IsMerged: false,
-	})
+	// Add many active branches
+	for i := 0; i < activeCount; i++ {
+		branches = append(branches, types.AnalyzedBranch{ // Original Index suggestedCount+1 to suggestedCount+activeCount
+			BranchInfo: types.BranchInfo{
+				Name:           fmt.Sprintf("active-%d", i),
+				LastCommitDate: sixtyDaysAgo, // Use a different date for variety
+				Remote:         "",           // No remote for some
+			},
+			Category: types.CategoryActive,
+			IsMerged: false,
+		})
+	}
 
 	return branches
 }
@@ -312,94 +320,332 @@ func TestTuiSelection(t *testing.T) {
 	}
 }
 
-// TestPagination tests the pagination functionality
+// TestPagination tests the pagination functionality for both Suggested and Other sections
 func TestPagination(t *testing.T) {
-	// Create a model with many branches to test pagination
-	branches := createManyBranches(20)
+	suggestedCount := 20
+	activeCount := 15
+	branches := createManyBranches(suggestedCount, activeCount)
 	m := createTestModel(branches)
 
-	// Check initial viewport state
-	if m.Viewports[SectionSuggested].Start != 0 {
-		t.Errorf("Expected initial viewport start to be 0, got %d", m.Viewports[SectionSuggested].Start)
-	}
-
-	// First, move the cursor to the suggested section
-	// The first branch is a protected branch, so we need to move down to the first suggested branch
-	mUpdated, _ := simulateSpecialKeyPress(m, tea.KeyDown)
+	// Simulate a window size to force pagination
+	// Assume Key=1, Header=1, Footer=1, Spacing=3, Indicators=2 => ~8 fixed lines
+	// Give each scrollable section ~5 lines for testing
+	windowHeight := 8 + 1 + 5 + 5 // Fixed + Key + Suggested + Other
+	mUpdated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: windowHeight})
 	mAsserted, ok := mUpdated.(Model)
 	if !ok {
 		t.Fatalf("Type assertion failed for mUpdated.(Model)")
 	}
 	m = mAsserted
 
-	// Verify the cursor is in the suggested section
-	if m.Cursor != 1 {
-		t.Fatalf("Expected cursor to be at position 1 (first suggested branch), got %d", m.Cursor)
-	}
+	// --- Test Suggested Section ---
+	t.Run("SuggestedSection", func(t *testing.T) {
+		// Move cursor to suggested section (index 1)
+		mTest := m // Start with the sized model
+		mUpdated, _ := simulateSpecialKeyPress(mTest, tea.KeyDown)
+		mAsserted, ok := mUpdated.(Model)
+		if !ok {
+			t.Fatalf("Type assertion failed")
+		}
+		mTest = mAsserted
+		if mTest.Cursor != 1 || mTest.CurrentSection != SectionSuggested {
+			t.Fatalf("Cursor not in suggested section (Cursor: %d, Section: %d)", mTest.Cursor, mTest.CurrentSection)
+		}
+		initialStart := mTest.Viewports[SectionSuggested].Start
 
-	// Now test page down
-	mUpdated, _ = simulateSpecialKeyPress(m, tea.KeyPgDown)
-	mAsserted, ok = mUpdated.(Model)
+		// Page Down
+		mUpdated, _ = simulateSpecialKeyPress(mTest, tea.KeyPgDown)
+		mAsserted, ok = mUpdated.(Model)
+		if !ok {
+			t.Fatalf("Type assertion failed")
+		}
+		mTest = mAsserted
+		if mTest.Viewports[SectionSuggested].Start <= initialStart {
+			t.Errorf("Expected Suggested viewport start > %d after PgDown, got %d",
+				initialStart, mTest.Viewports[SectionSuggested].Start)
+		}
+		pgDownStart := mTest.Viewports[SectionSuggested].Start
+
+		// Page Up
+		mUpdated, _ = simulateSpecialKeyPress(mTest, tea.KeyPgUp)
+		mAsserted, ok = mUpdated.(Model)
+		if !ok {
+			t.Fatalf("Type assertion failed")
+		}
+		mTest = mAsserted
+		if mTest.Viewports[SectionSuggested].Start >= pgDownStart {
+			t.Errorf("Expected Suggested viewport start < %d after PgUp, got %d",
+				pgDownStart, mTest.Viewports[SectionSuggested].Start)
+		}
+
+		// Home
+		mUpdated, _ = simulateSpecialKeyPress(mTest, tea.KeyHome)
+		mAsserted, ok = mUpdated.(Model)
+		if !ok {
+			t.Fatalf("Type assertion failed")
+		}
+		mTest = mAsserted
+		if mTest.Viewports[SectionSuggested].Start != 0 {
+			t.Errorf("Expected Suggested viewport start 0 after Home, got %d", mTest.Viewports[SectionSuggested].Start)
+		}
+		if mTest.Cursor != 1 { // Cursor should jump to start of section
+			t.Errorf("Expected Cursor 1 after Home in Suggested, got %d", mTest.Cursor)
+		}
+
+		// End
+		mUpdated, _ = simulateSpecialKeyPress(mTest, tea.KeyEnd)
+		mAsserted, ok = mUpdated.(Model)
+		if !ok {
+			t.Fatalf("Type assertion failed")
+		}
+		mTest = mAsserted
+		maxStart := max(0, mTest.Viewports[SectionSuggested].Total-mTest.Viewports[SectionSuggested].Size)
+		if mTest.Viewports[SectionSuggested].Start != maxStart {
+			t.Errorf("Expected Suggested viewport start %d after End, got %d", maxStart, mTest.Viewports[SectionSuggested].Start)
+		}
+		expectedCursor := 1 + suggestedCount - 1 // Key + Suggested - 1
+		if mTest.Cursor != expectedCursor {      // Cursor should jump to end of section
+			t.Errorf("Expected Cursor %d after End in Suggested, got %d", expectedCursor, mTest.Cursor)
+		}
+	})
+
+	// --- Test Other Section ---
+	t.Run("OtherSection", func(t *testing.T) {
+		mTest := m // Start with the sized model
+		// Move cursor to the start of the Other section
+		otherSectionStartCursor := 1 + suggestedCount // Key + Suggested
+		mTest.Cursor = otherSectionStartCursor - 1    // Start just before
+		mUpdated, _ := simulateSpecialKeyPress(mTest, tea.KeyDown)
+		mAsserted, ok := mUpdated.(Model)
+		if !ok {
+			t.Fatalf("Type assertion failed")
+		}
+		mTest = mAsserted
+		if mTest.Cursor != otherSectionStartCursor || mTest.CurrentSection != SectionOther {
+			t.Fatalf("Cursor not in Other section (Cursor: %d, Section: %d)", mTest.Cursor, mTest.CurrentSection)
+		}
+		initialStart := mTest.Viewports[SectionOther].Start
+
+		// Page Down
+		mUpdated, _ = simulateSpecialKeyPress(mTest, tea.KeyPgDown)
+		mAsserted, ok = mUpdated.(Model)
+		if !ok {
+			t.Fatalf("Type assertion failed")
+		}
+		mTest = mAsserted
+		if mTest.Viewports[SectionOther].Start <= initialStart {
+			t.Errorf("Expected Other viewport start > %d after PgDown, got %d",
+				initialStart, mTest.Viewports[SectionOther].Start)
+		}
+		pgDownStart := mTest.Viewports[SectionOther].Start
+
+		// Page Up
+		mUpdated, _ = simulateSpecialKeyPress(mTest, tea.KeyPgUp)
+		mAsserted, ok = mUpdated.(Model)
+		if !ok {
+			t.Fatalf("Type assertion failed")
+		}
+		mTest = mAsserted
+		if mTest.Viewports[SectionOther].Start >= pgDownStart {
+			t.Errorf("Expected Other viewport start < %d after PgUp, got %d", pgDownStart, mTest.Viewports[SectionOther].Start)
+		}
+
+		// Home
+		mUpdated, _ = simulateSpecialKeyPress(mTest, tea.KeyHome)
+		mAsserted, ok = mUpdated.(Model)
+		if !ok {
+			t.Fatalf("Type assertion failed")
+		}
+		mTest = mAsserted
+		if mTest.Viewports[SectionOther].Start != 0 {
+			t.Errorf("Expected Other viewport start 0 after Home, got %d", mTest.Viewports[SectionOther].Start)
+		}
+		if mTest.Cursor != otherSectionStartCursor { // Cursor should jump to start of section
+			t.Errorf("Expected Cursor %d after Home in Other, got %d", otherSectionStartCursor, mTest.Cursor)
+		}
+
+		// End
+		mUpdated, _ = simulateSpecialKeyPress(mTest, tea.KeyEnd)
+		mAsserted, ok = mUpdated.(Model)
+		if !ok {
+			t.Fatalf("Type assertion failed")
+		}
+
+		mTest = mAsserted
+		maxStart := max(0, mTest.Viewports[SectionOther].Total-mTest.Viewports[SectionOther].Size)
+		if mTest.Viewports[SectionOther].Start != maxStart {
+			t.Errorf("Expected Other viewport start %d after End, got %d", maxStart, mTest.Viewports[SectionOther].Start)
+		}
+		expectedCursor := otherSectionStartCursor + activeCount - 1 // Start of Other + Active Count - 1
+		if mTest.Cursor != expectedCursor {                         // Cursor should jump to end of section
+			t.Errorf("Expected Cursor %d after End in Other, got %d", expectedCursor, mTest.Cursor)
+		}
+		mTest = mAsserted
+		maxStart = max(0, mTest.Viewports[SectionOther].Total-mTest.Viewports[SectionOther].Size)
+		if mTest.Viewports[SectionOther].Start != maxStart {
+			t.Errorf("Expected Other viewport start %d after End, got %d", maxStart, mTest.Viewports[SectionOther].Start)
+		}
+		expectedCursor = otherSectionStartCursor + activeCount - 1 // Start of Other + Active Count - 1
+		if mTest.Cursor != expectedCursor {                        // Cursor should jump to end of section
+			t.Errorf("Expected Cursor %d after End in Other, got %d", expectedCursor, mTest.Cursor)
+		}
+	})
+}
+
+// TestAutoScrollingOtherSection tests the automatic viewport adjustment when the cursor moves
+// beyond the visible boundaries of the Other section.
+func TestAutoScrollingOtherSection(t *testing.T) {
+	suggestedCount := 5 // Keep suggested small
+	activeCount := 20   // Make active scrollable
+	branches := createManyBranches(suggestedCount, activeCount)
+	m := createTestModel(branches)
+
+	// Simulate a window size to make Other section scrollable
+	windowHeight := 8 + 1 + 5 + 5 // Fixed + Key + Suggested + Other (viewport size 5)
+	mUpdated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: windowHeight})
+	mAsserted, ok := mUpdated.(Model)
 	if !ok {
 		t.Fatalf("Type assertion failed for mUpdated.(Model)")
 	}
 	m = mAsserted
 
-	// Viewport should have moved down
-	if m.Viewports[SectionSuggested].Start <= 0 {
-		t.Errorf("Expected viewport start to increase after page down, got %d", m.Viewports[SectionSuggested].Start)
+	otherSectionStartCursor := 1 + suggestedCount // Key + Suggested
+	otherViewportSize := m.Viewports[SectionOther].Size
+	if otherViewportSize <= 0 || otherViewportSize >= activeCount {
+		t.Fatalf("Test setup failed: Other section viewport size (%d) not suitable for testing scrolling", otherViewportSize)
 	}
 
-	// Test page down again
-	mUpdated, _ = simulateSpecialKeyPress(m, tea.KeyPgDown)
-	mAsserted, ok = mUpdated.(Model)
+	// --- Test Scrolling Down ---
+	// Move cursor to the last visible item in the initial viewport of Other section
+	m.Cursor = otherSectionStartCursor + otherViewportSize - 1
+	// Set CurrentSection manually for the check, Update call is not needed here and advances cursor
+	m.CurrentSection = SectionOther
+	mAsserted = m // Start assertion with the manually set cursor/section
 	if !ok {
-		t.Fatalf("Type assertion failed for mUpdated.(Model)")
+		t.Fatalf("Type assertion failed")
 	}
 	m = mAsserted
 
-	// Viewport should have moved down further
-	previousStart := m.Viewports[SectionSuggested].Start
+	if m.CurrentSection != SectionOther {
+		t.Fatalf("Cursor should be in Other section, but is %v", m.CurrentSection)
+	}
+	initialStart := m.Viewports[SectionOther].Start
 
-	// Test page up
-	mUpdated, _ = simulateSpecialKeyPress(m, tea.KeyPgUp)
+	// Move cursor down one more time (should scroll viewport)
+	mUpdated, _ = simulateSpecialKeyPress(m, tea.KeyDown)
 	mAsserted, ok = mUpdated.(Model)
 	if !ok {
-		t.Fatalf("Type assertion failed for mUpdated.(Model)")
+		t.Fatalf("Type assertion failed")
 	}
 	m = mAsserted
 
-	// Viewport should have moved up
-	if m.Viewports[SectionSuggested].Start >= previousStart {
-		t.Errorf("Expected viewport start to decrease after page up, got %d", m.Viewports[SectionSuggested].Start)
+	if m.Viewports[SectionOther].Start <= initialStart {
+		t.Errorf("Expected Other viewport start to increase after scrolling down, got %d (was %d)",
+			m.Viewports[SectionOther].Start, initialStart)
+	}
+	if m.Cursor != otherSectionStartCursor+otherViewportSize { // Cursor should have moved
+		t.Errorf("Expected cursor at %d after scrolling down, got %d", otherSectionStartCursor+otherViewportSize, m.Cursor)
 	}
 
-	// Test home key
-	mUpdated, _ = simulateSpecialKeyPress(m, tea.KeyHome)
-	mAsserted, ok = mUpdated.(Model)
+	// --- Test Scrolling Up ---
+	// Move cursor to the first visible item in the scrolled viewport
+	m.Cursor = m.Viewports[SectionOther].Start + otherSectionStartCursor // Global cursor position
+	// Set CurrentSection manually, Update calls are not needed here
+	m.CurrentSection = SectionOther
+	mAsserted = m // Start assertion with the manually set cursor/section
 	if !ok {
-		t.Fatalf("Type assertion failed for mUpdated.(Model)")
+		t.Fatalf("Type assertion failed")
 	}
 	m = mAsserted
 
-	// Viewport should be at the start
-	if m.Viewports[SectionSuggested].Start != 0 {
-		t.Errorf("Expected viewport start to be 0 after home key, got %d", m.Viewports[SectionSuggested].Start)
+	if m.CurrentSection != SectionOther {
+		t.Fatalf("Cursor should be in Other section, but is %v", m.CurrentSection)
+	}
+	currentStart := m.Viewports[SectionOther].Start
+	if currentStart == 0 {
+		t.Skip("Viewport already at top, cannot test scrolling up further")
 	}
 
-	// Test end key
-	mUpdated, _ = simulateSpecialKeyPress(m, tea.KeyEnd)
+	// Move cursor up one more time (should scroll viewport up)
+	mUpdated, _ = simulateSpecialKeyPress(m, tea.KeyUp)
 	mAsserted, ok = mUpdated.(Model)
 	if !ok {
-		t.Fatalf("Type assertion failed for mUpdated.(Model)")
+		t.Fatalf("Type assertion failed")
 	}
 	m = mAsserted
 
-	// Viewport should be at the end
-	maxStart := m.Viewports[SectionSuggested].Total - m.Viewports[SectionSuggested].Size
-	if maxStart > 0 && m.Viewports[SectionSuggested].Start < maxStart {
-		t.Errorf("Expected viewport start to be at max (%d) after end key, got %d",
-			maxStart, m.Viewports[SectionSuggested].Start)
+	if m.Viewports[SectionOther].Start >= currentStart {
+		t.Errorf("Expected Other viewport start to decrease after scrolling up, got %d (was %d)",
+			m.Viewports[SectionOther].Start, currentStart)
+	}
+	if m.Cursor != otherSectionStartCursor+currentStart-1 { // Cursor should have moved
+		t.Errorf("Expected cursor at %d after scrolling up, got %d", otherSectionStartCursor+currentStart-1, m.Cursor)
+	}
+}
+
+// TestEnsureCursorVisible tests the helper function directly.
+func TestEnsureCursorVisible(t *testing.T) {
+	suggestedCount := 10
+	activeCount := 15
+	branches := createManyBranches(suggestedCount, activeCount)
+	m := createTestModel(branches)
+
+	// Simulate window size
+	windowHeight := 8 + 1 + 5 + 5 // Key=1, Suggested=5, Other=5
+	mUpdated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: windowHeight})
+	mAsserted, ok := mUpdated.(Model)
+	if !ok {
+		t.Fatalf("Type assertion failed")
+	}
+	m = mAsserted
+
+	suggestedViewport := m.Viewports[SectionSuggested]
+	otherViewport := m.Viewports[SectionOther]
+
+	// --- Test Suggested Section ---
+	// Cursor below viewport
+	m.Cursor = 1 + suggestedViewport.Size + 2 // Key + Size + 2 (well below)
+	m.ensureCursorVisible()
+	expectedStart := (m.Cursor - 1) - suggestedViewport.Size + 1 // sectionIndex - size + 1
+	if m.Viewports[SectionSuggested].Start != expectedStart {
+		t.Errorf("[Suggested] Cursor below: Expected start %d, got %d", expectedStart, m.Viewports[SectionSuggested].Start)
+	}
+
+	// Cursor above viewport (after setting start manually)
+	m.Viewports[SectionSuggested] = ViewportState{Start: 5, Size: 5, Total: suggestedCount}
+	m.Cursor = 1 + 2 // Key + 2 (well above start 5)
+	m.ensureCursorVisible()
+	expectedStart = m.Cursor - 1 // sectionIndex
+	if m.Viewports[SectionSuggested].Start != expectedStart {
+		t.Errorf("[Suggested] Cursor above: Expected start %d, got %d", expectedStart, m.Viewports[SectionSuggested].Start)
+	}
+
+	// --- Test Other Section ---
+	otherSectionStartCursor := 1 + suggestedCount
+	// Cursor below viewport
+	m.Cursor = otherSectionStartCursor + otherViewport.Size + 3 // Start + Size + 3
+	m.ensureCursorVisible()
+	expectedStart = (m.Cursor - otherSectionStartCursor) - otherViewport.Size + 1 // sectionIndex - size + 1
+	if m.Viewports[SectionOther].Start != expectedStart {
+		t.Errorf("[Other] Cursor below: Expected start %d, got %d", expectedStart, m.Viewports[SectionOther].Start)
+	}
+
+	// Cursor above viewport (after setting start manually)
+	m.Viewports[SectionOther] = ViewportState{Start: 7, Size: 5, Total: activeCount}
+	m.Cursor = otherSectionStartCursor + 4 // Start + 4 (well above start 7)
+	m.ensureCursorVisible()
+	expectedStart = m.Cursor - otherSectionStartCursor // sectionIndex
+	if m.Viewports[SectionOther].Start != expectedStart {
+		t.Errorf("[Other] Cursor above: Expected start %d, got %d", expectedStart, m.Viewports[SectionOther].Start)
+	}
+
+	// Cursor already inside viewport (should not change start)
+	m.Viewports[SectionOther] = ViewportState{Start: 3, Size: 5, Total: activeCount}
+	m.Cursor = otherSectionStartCursor + 5 // Inside viewport [3, 7]
+	initialStart := m.Viewports[SectionOther].Start
+	m.ensureCursorVisible()
+	if m.Viewports[SectionOther].Start != initialStart {
+		t.Errorf("[Other] Cursor inside: Expected start %d, got %d", initialStart, m.Viewports[SectionOther].Start)
 	}
 }
 
