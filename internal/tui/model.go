@@ -43,10 +43,11 @@ var (
 			Italic(true) // Style for non-existent remotes
 
 	// Progress indicator styles
-	progressStyle       = helpStyle
-	progressMarkerStyle = selectedStyle
-	progressInfoStyle   = helpStyle
-	categoryStyleMap    = map[types.BranchCategory]lipgloss.Style{
+	progressStyle = helpStyle
+	// Unused styles after refactoring to simpler indicators
+	// progressMarkerStyle = selectedStyle
+	// progressInfoStyle   = helpStyle
+	categoryStyleMap = map[types.BranchCategory]lipgloss.Style{
 		// Protected category is handled separately (keyBranches)
 		types.CategoryActive:      activeStyle,  // Style for the label text only
 		types.CategoryMergedOld:   successStyle, // Removed .Copy()
@@ -127,51 +128,52 @@ type Model struct { // Renamed from model
 	CurrentSection Section                   `json:"-"` // Currently active section
 }
 
-// Helper function to render the compact progress indicator
-func renderCompactIndicator(start, viewportSize, total int, width int) string {
-	// Handle case where everything fits
-	if total <= viewportSize {
-		return progressInfoStyle.Render("All branches visible")
-	}
-
-	// Calculate position (ensure we don't divide by zero)
-	maxStart := max(0, total-viewportSize)
-	position := float64(start) / float64(maxStart)
-
-	// Numerical portion
-	nums := fmt.Sprintf("%d-%d/%d",
-		start+1,
-		min(start+viewportSize, total),
-		total)
-
-	// Visual bar portion - use a fixed width for the bar
-	barWidth := 10
-	markerPos := int(position * float64(barWidth))
-
-	bar := "["
-	for i := 0; i < barWidth; i++ {
-		if i == markerPos {
-			bar += progressMarkerStyle.Render("⬤") // Position marker with emphasis
-		} else {
-			bar += "·" // Bar dots
-		}
-	}
-	bar += "]"
-
-	// Percentage
-	percentage := fmt.Sprintf("(%d%%)", int(position*100))
-
-	// Help text that fits remaining space
-	helpText := " | PgUp/PgDn to scroll"
-
-	// Check if we have room for Home/End text
-	if width >= len(nums)+len(bar)+len(percentage)+len(helpText)+20 {
-		helpText += " | Home/End to jump"
-	}
-
-	return progressStyle.Render(nums+" "+bar+" "+percentage) +
-		progressInfoStyle.Render(helpText)
-}
+// Unused after refactoring to simpler indicators
+// // Helper function to render the compact progress indicator
+// func renderCompactIndicator(start, viewportSize, total int, width int) string {
+// 	// Handle case where everything fits
+// 	if total <= viewportSize {
+// 		return progressInfoStyle.Render("All branches visible")
+// 	}
+//
+// 	// Calculate position (ensure we don't divide by zero)
+// 	maxStart := max(0, total-viewportSize)
+// 	position := float64(start) / float64(maxStart)
+//
+// 	// Numerical portion
+// 	nums := fmt.Sprintf("%d-%d/%d",
+// 		start+1,
+// 		min(start+viewportSize, total),
+// 		total)
+//
+// 	// Visual bar portion - use a fixed width for the bar
+// 	barWidth := 10
+// 	markerPos := int(position * float64(barWidth))
+//
+// 	bar := "["
+// 	for i := 0; i < barWidth; i++ {
+// 		if i == markerPos {
+// 			bar += progressMarkerStyle.Render("⬤") // Position marker with emphasis
+// 		} else {
+// 			bar += "·" // Bar dots
+// 		}
+// 	}
+// 	bar += "]"
+//
+// 	// Percentage
+// 	percentage := fmt.Sprintf("(%d%%)", int(position*100))
+//
+// 	// Help text that fits remaining space
+// 	helpText := " | PgUp/PgDn to scroll"
+//
+// 	// Check if we have room for Home/End text
+// 	if width >= len(nums)+len(bar)+len(percentage)+len(helpText)+20 {
+// 		helpText += " | Home/End to jump"
+// 	}
+//
+// 	return progressStyle.Render(nums+" "+bar+" "+percentage) +
+// 		progressInfoStyle.Render(helpText)
+// }
 
 // Helper function to get the section for a branch
 func (m Model) getBranchSection(originalIndex int) Section {
@@ -231,6 +233,7 @@ func InitialModel(
 	}
 
 	// Initialize viewports for each section
+	// Only the suggested section is scrollable now
 	viewports := map[Section]ViewportState{
 		SectionKey: {
 			Start: 0,
@@ -241,11 +244,6 @@ func InitialModel(
 			Start: 0,
 			Size:  len(suggested), // Initial size, will be adjusted by WindowSizeMsg
 			Total: len(suggested),
-		},
-		SectionOther: {
-			Start: 0,
-			Size:  len(active),
-			Total: len(active),
 		},
 	}
 
@@ -313,30 +311,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if suggestedTotal > 0 { // Assume suggested might scroll if it exists
 			fixedHeightEstimate++
 		}
-		if otherTotal > 0 { // Assume other might scroll if it exists
-			fixedHeightEstimate++
-		}
+		// Other branches don't scroll anymore, so we don't need to account for
+		// them in the available height calculation
 
-		availableHeight := max(3, m.Height-fixedHeightEstimate) // Min 1 line per section
+		// Calculate available height after accounting for headers, footers, etc.
+		availableHeight := max(3, m.Height-fixedHeightEstimate)
 
-		// Allocate space:
-		// 1. Key Branches: Fixed max height (e.g., 5 lines)
-		keyHeight := min(len(m.KeyBranches), 5)
-		// remainingHeight := availableHeight - keyHeight // Removed, replaced by remainingHeightAfterMins logic
+		// Set fixed viewport sizes to match user requirements
+		keyHeight := min(len(m.KeyBranches), 3) // Show up to 3 key branches
+		// Other branches are fixed at 5 maximum, no viewport needed
 
-		// 2. Allocate remaining height: Guarantee minimums first, then distribute.
-		suggestedHeight := 0
-		otherHeight := 0
+		// Give remaining space to suggested branches, but cap at 10
+		// Initial values
+		var suggestedHeight int
+		var otherHeight int
 
 		// Guarantee minimums if items exist
 		if suggestedTotal > 0 {
 			suggestedHeight = 1
 		}
-		if otherTotal > 0 {
-			otherHeight = 1
-		}
+		// We always show up to 5 other branches if they exist
+		otherHeight = min(5, otherTotal)
 
 		// Calculate height remaining *after* guaranteeing minimums (and keyHeight)
+		// availableHeight is now defined
 		remainingHeightAfterMins := availableHeight - keyHeight - suggestedHeight - otherHeight
 
 		// Distribute positive remaining height, prioritizing suggested
@@ -354,18 +352,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			suggestedHeight += addSuggested
 			remainingHeightAfterMins -= addSuggested
 
-			// Give the rest to other
-			if remainingHeightAfterMins > 0 {
-				neededOther := max(0, otherTotal-otherHeight) // How much more other needs
-				addOther := min(remainingHeightAfterMins, neededOther)
-				otherHeight += addOther
-				// remainingHeightAfterMins -= addOther // No need to track further
-			}
+			// Other branches are fixed at max 5, no need to distribute remaining height to them
 		}
 
 		// Final cap: ensure height doesn't exceed total items (might be redundant now, but safe)
 		suggestedHeight = min(suggestedHeight, suggestedTotal)
-		otherHeight = min(otherHeight, otherTotal)
+		// Other branches are fixed at max 5
 
 		// Debug logging removed
 
@@ -374,32 +366,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.Viewports = make(map[Section]ViewportState)
 		}
 
-		// --- Key Viewport ---
-		keyViewport := m.Viewports[SectionKey] // Get existing or zero value
-		keyViewport.Size = keyHeight           // Set calculated size
-		keyViewport.Total = len(m.KeyBranches) // Update total
-		// Ensure Start is valid after resize
-		keyViewport.Start = min(keyViewport.Start, max(0, keyViewport.Total-keyViewport.Size))
+		// Key branches viewport
+		keyViewport := m.Viewports[SectionKey]
+		keyViewport.Size = keyHeight
+		keyViewport.Total = len(m.KeyBranches)
 		m.Viewports[SectionKey] = keyViewport
 
-		// --- Suggested Viewport ---
-		suggestedViewport := m.Viewports[SectionSuggested] // Get existing or zero value
-		suggestedViewport.Size = suggestedHeight           // Set calculated size
-		suggestedViewport.Total = suggestedTotal           // Update total
-		// Ensure Start is valid after resize
-		suggestedViewport.Start = min(suggestedViewport.Start, max(0, suggestedViewport.Total-suggestedViewport.Size))
+		// Suggested branches viewport - max 10 visible items
+		suggestedViewport := m.Viewports[SectionSuggested]
+		suggestedViewport.Size = suggestedHeight
+		suggestedViewport.Total = len(m.SuggestedBranches)
 		m.Viewports[SectionSuggested] = suggestedViewport
 
-		// --- Other Viewport ---
-		otherViewport := m.Viewports[SectionOther] // Get existing or zero value
-		otherViewport.Size = otherHeight           // Set calculated size
-		otherViewport.Total = otherTotal           // Update total
-		// Ensure Start is valid after resize
-		otherViewport.Start = min(otherViewport.Start, max(0, otherViewport.Total-otherViewport.Size))
-		m.Viewports[SectionOther] = otherViewport
+		// Other branches are fixed at 5 visible items maximum, no scrolling
+		// We don't need viewport for this section anymore since it doesn't scroll
 
 		// Ensure cursor is still visible after resize
-		m.ensureCursorVisible() // Add a helper function for this
+		m = m.ensureCursorVisible() // Use the ensureCursorVisible that returns Model
 
 		return m, nil
 	case resultsMsg: // Internal message type
@@ -437,185 +420,183 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// getSectionBaseIndex returns the base cursor index for a section
-func (m Model) getSectionBaseIndex(section Section) int {
-	switch section {
-	case SectionSuggested:
-		return len(m.KeyBranches)
-	case SectionOther:
-		return len(m.KeyBranches) + len(m.SuggestedBranches)
-	case SectionKey:
-		return 0
-	default:
-		return 0
-	}
-}
-
-// getCurrentSection determines the section for the current cursor position
-func (m Model) getCurrentSection() Section {
-	if m.Cursor < len(m.ListOrder) {
-		return m.getBranchSection(m.ListOrder[m.Cursor])
-	}
-	return SectionSuggested // Default
-}
-
-// updateCurrentSection updates the current section based on cursor position
-func (m *Model) updateCurrentSection() {
-	m.CurrentSection = m.getCurrentSection()
-}
-
-// isScrollableSection returns true if a section can be scrolled
-func (m Model) isScrollableSection(section Section) bool {
-	return section == SectionSuggested || section == SectionOther
-}
-
-// moveUp moves the cursor up one position
-func (m *Model) moveUp() {
+// moveUp moves the cursor up and handles scrolling logic
+func (m Model) moveUp() Model {
 	if m.Cursor <= 0 {
-		return
+		return m // Already at the top
 	}
-
-	// Determine section before moving cursor
-	sectionBeforeMove := m.getCurrentSection()
 
 	// Move cursor up
 	m.Cursor--
 
-	// Auto-scroll viewport if cursor moves out of view
-	if viewport, ok := m.Viewports[sectionBeforeMove]; ok && viewport.Total > viewport.Size {
-		baseIndex := m.getSectionBaseIndex(sectionBeforeMove)
-		sectionIndex := m.Cursor - baseIndex
+	// Get current section based on the new cursor position
+	cursorSection := m.getCurrentSection()
 
-		// If cursor moved above the visible area of the section
-		if sectionIndex >= 0 && sectionIndex < viewport.Start {
-			viewport.Start = sectionIndex
-			m.Viewports[sectionBeforeMove] = viewport
+	// Update current section
+	m.CurrentSection = cursorSection
+
+	// Auto-scroll viewport if cursor is in the suggested section
+	if cursorSection == SectionSuggested {
+		// Get the index within the suggested section
+		sectionIndex := 0
+		for i := 0; i < len(m.KeyBranches); i++ {
+			if m.Cursor == i {
+				break
+			}
+			sectionIndex++
+		}
+
+		// If cursor is now outside viewport, scroll up
+		viewport := m.Viewports[SectionSuggested]
+		if sectionIndex < viewport.Start {
+			viewport.Start = max(0, sectionIndex)
+			m.Viewports[SectionSuggested] = viewport
 		}
 	}
 
-	// Update current section
-	m.updateCurrentSection()
+	return m
 }
 
-// moveDown moves the cursor down one position
-func (m *Model) moveDown(totalItems int) {
-	if m.Cursor >= totalItems-1 {
-		return
+// moveDown moves the cursor down and handles scrolling logic
+func (m Model) moveDown(_ int) Model {
+	// Calculate the last valid cursor position
+	// This is the last suggested branch, ensuring we don't move into Other Branches
+	lastValidCursor := len(m.KeyBranches) + len(m.SuggestedBranches) - 1
+
+	// If we're already at the last valid position or beyond, do nothing
+	if m.Cursor >= lastValidCursor {
+		return m
 	}
 
-	// Determine section before moving cursor
-	sectionBeforeMove := m.getCurrentSection()
-
-	// Move cursor down
+	// Move cursor down (but never beyond the suggested branches)
 	m.Cursor++
 
-	// Auto-scroll viewport if cursor moves out of view
-	if viewport, ok := m.Viewports[sectionBeforeMove]; ok && viewport.Total > viewport.Size {
-		baseIndex := m.getSectionBaseIndex(sectionBeforeMove)
-		sectionIndex := m.Cursor - baseIndex
+	// Get current section based on the new cursor position
+	cursorSection := m.getCurrentSection()
 
-		// If cursor moved below the visible area of the section
-		if sectionIndex >= 0 && sectionIndex >= viewport.Start+viewport.Size {
-			viewport.Start = sectionIndex - viewport.Size + 1
-			m.Viewports[sectionBeforeMove] = viewport
+	// Update current section - should always be Key or Suggested
+	m.CurrentSection = cursorSection
+
+	// Auto-scroll viewport if cursor is in the suggested section
+	if cursorSection == SectionSuggested {
+		// Get the index within the suggested section
+		sectionIndex := 0
+		for i := len(m.KeyBranches); i < len(m.KeyBranches)+len(m.SuggestedBranches); i++ {
+			if m.Cursor == i {
+				break
+			}
+			sectionIndex++
+		}
+
+		// If cursor is now outside viewport, scroll down
+		viewport := m.Viewports[SectionSuggested]
+		if sectionIndex >= viewport.Start+viewport.Size {
+			viewport.Start = max(0, sectionIndex-viewport.Size+1)
+			m.Viewports[SectionSuggested] = viewport
 		}
 	}
 
-	// Update current section
-	m.updateCurrentSection()
+	return m
 }
 
 // pageUp scrolls the current section up one page
-func (m *Model) pageUp() {
-	// Determine section before scrolling
-	sectionBeforeScroll := m.getCurrentSection()
+func (m Model) pageUp() Model {
+	cursorSection := m.getCurrentSection()
 
-	// Scroll the section's viewport up
-	if viewport, ok := m.Viewports[sectionBeforeScroll]; ok && viewport.Total > viewport.Size {
-		if m.isScrollableSection(sectionBeforeScroll) {
-			viewport.Start = max(0, viewport.Start-viewport.Size)
-			m.Viewports[sectionBeforeScroll] = viewport
+	// Only scroll in the suggested section
+	if cursorSection == SectionSuggested {
+		viewport := m.Viewports[SectionSuggested]
+		// Move viewport up by page size
+		viewport.Start = max(0, viewport.Start-viewport.Size)
+		m.Viewports[SectionSuggested] = viewport
 
-			// Move cursor to the top of the new viewport page
-			baseIndex := m.getSectionBaseIndex(sectionBeforeScroll)
-			m.Cursor = baseIndex + viewport.Start
+		// Move cursor to top of viewport if it's now outside
+		newCursorPos := len(m.KeyBranches) + viewport.Start
+		if m.Cursor < newCursorPos || m.Cursor >= newCursorPos+viewport.Size {
+			m.Cursor = newCursorPos
 		}
+
+		// Update current section
+		m.CurrentSection = m.getCurrentSection()
 	}
 
-	// Update current section
-	m.updateCurrentSection()
+	return m
 }
 
 // pageDown scrolls the current section down one page
-func (m *Model) pageDown() {
-	// Determine section before scrolling
-	sectionBeforeScroll := m.getCurrentSection()
+func (m Model) pageDown() Model {
+	cursorSection := m.getCurrentSection()
 
-	// Scroll the section's viewport down
-	if viewport, ok := m.Viewports[sectionBeforeScroll]; ok && viewport.Total > viewport.Size {
-		if m.isScrollableSection(sectionBeforeScroll) {
-			maxStart := max(0, viewport.Total-viewport.Size)
-			viewport.Start = min(maxStart, viewport.Start+viewport.Size)
-			m.Viewports[sectionBeforeScroll] = viewport
+	// Only scroll in the suggested section
+	if cursorSection == SectionSuggested {
+		viewport := m.Viewports[SectionSuggested]
+		// Move viewport down by page size
+		maxStart := max(0, viewport.Total-viewport.Size)
+		viewport.Start = min(maxStart, viewport.Start+viewport.Size)
+		m.Viewports[SectionSuggested] = viewport
 
-			// Move cursor to the top of the new viewport page
-			baseIndex := m.getSectionBaseIndex(sectionBeforeScroll)
-			m.Cursor = baseIndex + viewport.Start
+		// Move cursor to top of viewport
+		newCursorPos := len(m.KeyBranches) + viewport.Start
+		if m.Cursor < newCursorPos || m.Cursor >= newCursorPos+viewport.Size {
+			m.Cursor = newCursorPos
 		}
+
+		// Update current section
+		m.CurrentSection = m.getCurrentSection()
 	}
 
-	// Update current section
-	m.updateCurrentSection()
+	return m
 }
 
 // jumpToSectionStart jumps to the first item in the current section
-func (m *Model) jumpToSectionStart() {
-	// Determine section before jumping
-	sectionBeforeJump := m.getCurrentSection()
+func (m Model) jumpToSectionStart() Model {
+	cursorSection := m.getCurrentSection()
 
-	// Jump to the first item in that section
-	if viewport, ok := m.Viewports[sectionBeforeJump]; ok && viewport.Total > 0 {
-		if m.isScrollableSection(sectionBeforeJump) {
-			viewport.Start = 0
-			m.Viewports[sectionBeforeJump] = viewport
-		}
+	// Only jump in the suggested section
+	if cursorSection == SectionSuggested {
+		viewport := m.Viewports[SectionSuggested]
+		viewport.Start = 0
+		m.Viewports[SectionSuggested] = viewport
 
-		// Move cursor to the first item of the section
-		baseIndex := m.getSectionBaseIndex(sectionBeforeJump)
-		m.Cursor = baseIndex
+		// Move cursor to first item in section
+		m.Cursor = len(m.KeyBranches)
+
+		// Update current section
+		m.CurrentSection = m.getCurrentSection()
 	}
 
-	// Update current section
-	m.updateCurrentSection()
+	return m
 }
 
 // jumpToSectionEnd jumps to the last item in the current section
-func (m *Model) jumpToSectionEnd() {
-	// Determine section before jumping
-	sectionBeforeJump := m.getCurrentSection()
+func (m Model) jumpToSectionEnd() Model {
+	cursorSection := m.getCurrentSection()
 
-	// Jump to the last item in that section
-	if viewport, ok := m.Viewports[sectionBeforeJump]; ok && viewport.Total > 0 {
-		if m.isScrollableSection(sectionBeforeJump) {
-			maxStart := max(0, viewport.Total-viewport.Size)
-			viewport.Start = maxStart
-			m.Viewports[sectionBeforeJump] = viewport
-		}
+	// Only jump in the suggested section
+	if cursorSection == SectionSuggested {
+		viewport := m.Viewports[SectionSuggested]
+		maxStart := max(0, viewport.Total-viewport.Size)
+		viewport.Start = maxStart
+		m.Viewports[SectionSuggested] = viewport
 
-		// Move cursor to the last item of the section
-		baseIndex := m.getSectionBaseIndex(sectionBeforeJump)
-		lastItemIndexInSection := viewport.Total - 1
-		m.Cursor = baseIndex + lastItemIndexInSection
+		// Move cursor to last visible item
+		lastVisible := min(
+			len(m.KeyBranches)+viewport.Start+viewport.Size-1,
+			len(m.KeyBranches)+len(m.SuggestedBranches)-1,
+		)
+		m.Cursor = lastVisible
+
+		// Update current section
+		m.CurrentSection = m.getCurrentSection()
 	}
 
-	// Update current section
-	m.updateCurrentSection()
+	return m
 }
 
 // toggleLocalSelection toggles local branch selection
-func (m *Model) toggleLocalSelection() {
+func (m Model) toggleLocalSelection() Model {
 	if m.Cursor >= len(m.ListOrder) {
-		return
+		return m // Bounds check
 	}
 
 	originalIndex := m.ListOrder[m.Cursor]
@@ -634,12 +615,14 @@ func (m *Model) toggleLocalSelection() {
 			}
 		}
 	}
+
+	return m
 }
 
 // toggleRemoteSelection toggles remote branch selection
-func (m *Model) toggleRemoteSelection() {
+func (m Model) toggleRemoteSelection() Model {
 	if m.Cursor >= len(m.ListOrder) {
-		return
+		return m // Bounds check
 	}
 
 	originalIndex := m.ListOrder[m.Cursor]
@@ -656,6 +639,79 @@ func (m *Model) toggleRemoteSelection() {
 			}
 		}
 	}
+
+	return m
+}
+
+// getCurrentSection determines the section for the current cursor position
+func (m Model) getCurrentSection() Section {
+	// Calculate section boundaries
+	firstSuggestedIndex := len(m.KeyBranches)
+	lastSuggestedIndex := firstSuggestedIndex + len(m.SuggestedBranches) - 1
+
+	// Determine section based on cursor position
+	switch {
+	case m.Cursor < firstSuggestedIndex:
+		return SectionKey
+	case m.Cursor <= lastSuggestedIndex:
+		return SectionSuggested
+	default:
+		// This shouldn't happen anymore, but return Suggested as fallback
+		return SectionSuggested
+	}
+}
+
+// ensureCursorVisible makes sure the cursor is visible in the current viewport.
+func (m Model) ensureCursorVisible() Model {
+	if m.Cursor < 0 {
+		return m
+	}
+
+	// Get section for current cursor
+	cursorSection := m.getCurrentSection()
+
+	// Only handle suggested section with viewport logic (Other section doesn't scroll and is not selectable)
+	if cursorSection != SectionSuggested {
+		return m
+	}
+
+	// Get the base index and viewport for this section
+	baseIndex := m.getSectionBaseIndex(cursorSection)
+	viewport, ok := m.Viewports[cursorSection]
+	if !ok || viewport.Total <= viewport.Size {
+		return m // No viewport or everything fits
+	}
+
+	// Get cursor position within section
+	sectionIndex := m.Cursor - baseIndex
+
+	// Cursor is above viewport, adjust viewport to show cursor
+	if sectionIndex < viewport.Start {
+		viewport.Start = sectionIndex
+		m.Viewports[cursorSection] = viewport
+	}
+
+	// Cursor is below viewport, adjust viewport to show cursor
+	if sectionIndex >= viewport.Start+viewport.Size {
+		viewport.Start = sectionIndex - viewport.Size + 1
+		m.Viewports[cursorSection] = viewport
+	}
+
+	return m
+}
+
+// getSectionBaseIndex returns the base cursor index for a section
+func (m Model) getSectionBaseIndex(section Section) int {
+	switch section {
+	case SectionSuggested:
+		return len(m.KeyBranches)
+	case SectionOther:
+		return len(m.KeyBranches) + len(m.SuggestedBranches)
+	case SectionKey:
+		return 0
+	default:
+		return 0
+	}
 }
 
 // updateSelecting handles key presses when in the selecting state.
@@ -668,33 +724,37 @@ func (m Model) updateSelecting(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil // Ignore other keys if list is empty
 	}
 
+	// Initialize current section
+	m.CurrentSection = m.getCurrentSection()
+
+	// Handle different key presses
 	switch msg.String() {
 	case "q":
 		return m, tea.Quit
 
 	case "up", "k":
-		m.moveUp()
+		m = m.moveUp()
 
 	case "down", "j":
-		m.moveDown(totalItems)
+		m = m.moveDown(totalItems)
 
 	case "pgup":
-		m.pageUp()
+		m = m.pageUp()
 
 	case "pgdown":
-		m.pageDown()
+		m = m.pageDown()
 
 	case "home":
-		m.jumpToSectionStart()
+		m = m.jumpToSectionStart()
 
 	case "end":
-		m.jumpToSectionEnd()
+		m = m.jumpToSectionEnd()
 
 	case " ": // Toggle local selection
-		m.toggleLocalSelection()
+		m = m.toggleLocalSelection()
 
 	case "tab", "r": // Toggle remote selection
-		m.toggleRemoteSelection()
+		m = m.toggleRemoteSelection()
 
 	case "enter":
 		if len(m.SelectedLocal) > 0 || len(m.SelectedRemote) > 0 {
@@ -703,8 +763,8 @@ func (m Model) updateSelecting(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil // No command needed here
 	}
 
-	// Ensure cursor is visible after any potential move/scroll
-	m.ensureCursorVisible()
+	// Ensure cursor is visible in the viewport
+	m = m.ensureCursorVisible()
 
 	return m, nil
 }
@@ -742,13 +802,20 @@ func (m Model) updateResults(_ tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // renderKeyBranches renders the non-selectable key branches (Protected, Current).
 // Kept internal as it's only called by View.
-func (m Model) renderKeyBranches(b *strings.Builder) { // Removed itemIndex
+func (m Model) renderKeyBranches(b *strings.Builder, itemIndex *int) {
 	for i, branch := range m.KeyBranches { // Capture index i
 		cursor := " "
 		// Calculate display index based on loop index (key branches are first)
 		displayIndex := i
 		if m.Cursor == displayIndex {
 			cursor = cursorStyle.Render(">")
+		}
+
+		// Normalize cursor width for consistent alignment
+		if cursor == " " {
+			cursor = "  " // Two spaces when no cursor
+		} else {
+			cursor += " " // Cursor with one space
 		}
 
 		localCheckbox := checkboxUnselectable // Never selectable
@@ -774,28 +841,23 @@ func (m Model) renderKeyBranches(b *strings.Builder) { // Removed itemIndex
 		line := fmt.Sprintf("Local: %s %s | Remote: %s %s %s",
 			localCheckbox, branch.Name, remoteCheckbox, remoteInfo, categoryText)
 
-		b.WriteString(cursor + " " + lineStyle.Render(line) + "\n")
-		// No need to increment shared index
+		b.WriteString(cursor + lineStyle.Render(line) + "\n")
+		*itemIndex++ // Increment the shared index
 	}
 }
 
 // renderSuggestedBranches renders the selectable suggested branches (MergedOld, UnmergedOld).
-// Kept internal as it's only called by View.
-func (m Model) renderSuggestedBranches(b *strings.Builder) {
+// Kept internal as it's only called by View. The itemIndex parameter tracks the global item index.
+func (m Model) renderSuggestedBranches(b *strings.Builder, _ *int) {
 	// Get viewport state for suggested branches
-	// viewport := m.Viewports[SectionSuggested] // Already declared earlier
-
-	// Add a simple debug line here
-	b.WriteString("--- DEBUG: Rendering Suggested Section ---\n")
 	viewport := m.Viewports[SectionSuggested]
 
-	// Debug logging removed
-
-	// Debug output removed for production
+	// Remove debug output for production version
 
 	// Show "More above" indicator only if needed
 	if viewport.Start > 0 {
-		b.WriteString(helpStyle.Render("   ↑ More branches above ↑") + "\n")
+		// Add more spaces to properly align with branch content
+		b.WriteString("    " + helpStyle.Render("-- More branches above --") + "\n")
 	}
 	// Removed the unconditional blank line here
 
@@ -827,9 +889,17 @@ func (m Model) renderSuggestedBranches(b *strings.Builder) {
 		}
 		// Reverted: Fetch branch data using originalIndex instead of m.SuggestedBranches[i]
 
+		// Get cursor with consistent width for alignment
 		cursor := " "
 		if m.Cursor == displayIndex {
 			cursor = cursorStyle.Render(">")
+		}
+
+		// Normalize cursor width for consistent alignment
+		if cursor == " " {
+			cursor = "  " // Two spaces when no cursor
+		} else {
+			cursor += " " // Cursor with one space
 		}
 
 		// These are always selectable
@@ -851,21 +921,55 @@ func (m Model) renderSuggestedBranches(b *strings.Builder) {
 		categoryStyle := categoryStyleMap[branch.Category]
 		categoryText := categoryStyle.Render("(" + string(branch.Category) + ")")
 
-		line := fmt.Sprintf("Local: %s %s | Remote: %s %s %s",
-			localCheckbox, branch.Name, remoteCheckbox, remoteInfo, categoryText)
+		// Construct the line with appropriate styling for each part
+		// Use a consistent formatting for the line to ensure alignment
+		// Build remote text with the declared variables
+		remoteText := fmt.Sprintf("Remote: %s %s", remoteCheckbox, remoteInfo)
+
+		line := fmt.Sprintf("Local: %s %s | %s %s",
+			localCheckbox, branch.Name, remoteText, categoryText)
 
 		// Apply styling based on cursor and category
 		if m.Cursor == displayIndex {
 			if branch.Category == types.CategoryUnmergedOld {
-				b.WriteString(cursor + " " + warningStyle.Render(selectedStyle.Render(line)) + "\n")
+				// For unmerged branches, apply warning style
+				// But preserve the remote dimming/brightening
+				parts := strings.SplitN(line, " | ", 2)
+				if len(parts) == 2 {
+					localPart := warningStyle.Render(selectedStyle.Render(parts[0]))
+					// Don't apply warning style to the remote part to preserve dimming
+					b.WriteString(cursor + localPart + " | " + parts[1] + "\n")
+				} else {
+					// Fallback if split fails
+					b.WriteString(cursor + warningStyle.Render(selectedStyle.Render(line)) + "\n")
+				}
 			} else {
-				b.WriteString(cursor + " " + selectedStyle.Render(line) + "\n")
+				// For merged branches, apply selected style to local part only
+				parts := strings.SplitN(line, " | ", 2)
+				if len(parts) == 2 {
+					localPart := selectedStyle.Render(parts[0])
+					// Don't apply selected style to the remote part to preserve dimming
+					b.WriteString(cursor + localPart + " | " + parts[1] + "\n")
+				} else {
+					// Fallback if split fails
+					b.WriteString(cursor + selectedStyle.Render(line) + "\n")
+				}
 			}
 		} else {
 			if branch.Category == types.CategoryUnmergedOld {
-				b.WriteString(cursor + " " + warningStyle.Render(line) + "\n")
+				// For unmerged branches not under cursor
+				parts := strings.SplitN(line, " | ", 2)
+				if len(parts) == 2 {
+					localPart := warningStyle.Render(parts[0])
+					// Don't apply warning style to the remote part to preserve dimming
+					b.WriteString(cursor + localPart + " | " + parts[1] + "\n")
+				} else {
+					// Fallback if split fails
+					b.WriteString(cursor + warningStyle.Render(line) + "\n")
+				}
 			} else {
-				b.WriteString(cursor + " " + line + "\n")
+				// Regular branches not under cursor
+				b.WriteString(cursor + line + "\n")
 			}
 		}
 		// --- End Simplified Rendering ---
@@ -878,48 +982,67 @@ func (m Model) renderSuggestedBranches(b *strings.Builder) {
 
 	// Always reserve space for "More below" indicator
 	if viewport.Start+viewport.Size < viewport.Total {
-		b.WriteString(helpStyle.Render("   ↓ More branches below ↓") + "\n")
+		// Add more spaces to properly align with branch content
+		b.WriteString("    " + helpStyle.Render("-- More branches below --\n"))
 	}
 	// Removed the unconditional blank line here
 
 	// Show pagination indicator if there are more branches than can fit
 	if viewport.Total > viewport.Size {
-		indicator := renderCompactIndicator(viewport.Start, viewport.Size, viewport.Total, m.Width)
-		b.WriteString(indicator + "\n")
+		// Create a right-aligned indicator
+		nums := fmt.Sprintf("%d-%d/%d",
+			viewport.Start+1,
+			min(viewport.Start+viewport.Size, viewport.Total),
+			viewport.Total)
+
+		// Add a fixed amount of spaces to better right-align the numbers
+		b.WriteString("                                                          " + progressStyle.Render(nums) + "\n")
 	}
 }
 
 // renderOtherActiveBranches renders the non-selectable active branches.
 // Kept internal as it's only called by View.
-func (m Model) renderOtherActiveBranches(b *strings.Builder) { // Removed itemIndex
-	for i, branch := range m.OtherActiveBranches { // Capture index i
-		cursor := " "
-		// Calculate display index based on loop index and previous sections
-		displayIndex := len(m.KeyBranches) + len(m.SuggestedBranches) + i
-		if m.Cursor == displayIndex {
-			cursor = cursorStyle.Render(">")
-		}
+func (m Model) renderOtherActiveBranches(b *strings.Builder, _ *int) {
+	// Always limit to exactly 5 branches (or fewer if there are less than 5)
+	maxBranches := 5
+	totalBranches := len(m.OtherActiveBranches)
+
+	// Show only the first 5 branches, no scrolling
+	visibleBranches := min(maxBranches, totalBranches)
+
+	// Render only the first 5 branches
+	for i := 0; i < visibleBranches; i++ {
+		branch := m.OtherActiveBranches[i]
+
+		// Other branches are never selectable and never show a cursor
+		cursor := "  " // Always use two spaces (no cursor)
 
 		// These are never selectable
 		localCheckbox := checkboxUnselectable
 		remoteCheckbox := checkboxUnselectable
 		lineStyle := activeStyle // Use faint style
 
-		// Restore remote info display using styles
-		// Correct remote info display using styles and correct check
+		// Format remote info
 		remoteInfo := remoteNoneStyle.Render(remoteNone)
-		if branch.Remote != "" { // Check if remote name is configured
-			// Assume analysis sets Remote correctly based on upstream existence check
+		if branch.Remote != "" {
 			remoteInfo = remoteDimmedStyle.Render(fmt.Sprintf("(%s/%s)", branch.Remote, branch.Name))
-		} // No specific style needed for "remote defined but doesn't exist"
+		}
 
 		categoryText := activeStyle.Render("(" + string(branch.Category) + ")")
 
 		line := fmt.Sprintf("Local: %s %s | Remote: %s %s %s",
 			localCheckbox, branch.Name, remoteCheckbox, remoteInfo, categoryText)
 
-		b.WriteString(cursor + " " + lineStyle.Render(line) + "\n")
-		// No need to increment shared index
+		b.WriteString(cursor + lineStyle.Render(line) + "\n")
+
+		// We don't increment itemIndex here since these branches are not part of the
+		// navigation order and can't be selected
+	}
+
+	// If there are more branches than we're showing, just add a note
+	if totalBranches > maxBranches {
+		totalHidden := totalBranches - maxBranches
+		b.WriteString("    " + helpStyle.Render(fmt.Sprintf("... and %d more branches not shown", totalHidden)) + "\n")
 	}
 }
 
@@ -932,10 +1055,10 @@ func (m Model) renderSelectingState(b *strings.Builder) {
 	title += helpStyle.Render(" (Remote requires local)")
 	b.WriteString(title + "\n\n")
 
-	// itemIndex := 0 // Removed - No longer needed
+	itemIndex := 0 // Tracks the overall item index for cursor comparison
 
 	// --- Render Key Branches ---
-	m.renderKeyBranches(b) // Removed itemIndex
+	m.renderKeyBranches(b, &itemIndex)
 
 	// --- Separator and Header for Suggested branches ---
 	hasSuggestions := len(m.SuggestedBranches) > 0
@@ -948,9 +1071,7 @@ func (m Model) renderSelectingState(b *strings.Builder) {
 	}
 	if hasSuggestions {
 		b.WriteString(headingStyle.Render("Suggested Branches (Candidates):") + "\n")
-		b.WriteString("--- DEBUG: BEFORE renderSuggestedBranches ---\n") // DEBUG
-		m.renderSuggestedBranches(b)
-		b.WriteString("--- DEBUG: AFTER renderSuggestedBranches ---\n") // DEBUG
+		m.renderSuggestedBranches(b, &itemIndex)
 	}
 
 	// --- Separator and Header for Other Active branches ---
@@ -961,7 +1082,7 @@ func (m Model) renderSelectingState(b *strings.Builder) {
 	// Restore rendering 'Other' section
 	if hasActive {
 		b.WriteString(headingStyle.Render("Other Branches (Active / Not Selectable):") + "\n")
-		m.renderOtherActiveBranches(b) // Removed itemIndex
+		m.renderOtherActiveBranches(b, &itemIndex)
 	}
 
 	if len(m.ListOrder) == 0 { // Check if the overall list order is empty
@@ -1133,62 +1254,5 @@ func (m Model) GetBranchesToDelete() []gitcmd.BranchToDelete {
 }
 
 // --- Helper Functions ---
-
-// ensureCursorVisible adjusts the viewport start position for the current section
-// so that the cursor is within the visible area. Should be called after
-// operations that might change viewport size or cursor position relative to it.
-func (m *Model) ensureCursorVisible() {
-	// Use a pointer receiver to modify the model directly
-	if m.Cursor < 0 || m.Cursor >= len(m.ListOrder) {
-		return // Cursor out of bounds
-	}
-
-	cursorSection := m.getBranchSection(m.ListOrder[m.Cursor])
-	viewport, ok := m.Viewports[cursorSection]
-	// Use pointer to modify map value directly
-	if !ok {
-		return
-	} // Viewport not found for section
-
-	if viewport.Size <= 0 || viewport.Total <= viewport.Size {
-		return // Not a scrollable section or viewport invalid/not needed
-	}
-
-	// Calculate the base index for this section
-	baseIndex := 0
-	switch cursorSection {
-	case SectionSuggested:
-		baseIndex = len(m.KeyBranches)
-	case SectionOther:
-		baseIndex = len(m.KeyBranches) + len(m.SuggestedBranches)
-	case SectionKey:
-		return // Key section doesn't scroll, no need to adjust viewport
-	default: // Unknown section
-		return
-	}
-
-	// Calculate cursor's index relative to the section start
-	sectionIndex := m.Cursor - baseIndex
-	if sectionIndex < 0 {
-		return
-	} // Should not happen if baseIndex logic is correct
-
-	// Determine newStart based on cursor position relative to viewport
-	newStart := viewport.Start // Initialize with current value
-	switch {
-	case sectionIndex < viewport.Start: // Cursor above viewport
-		newStart = sectionIndex
-	case sectionIndex >= viewport.Start+viewport.Size: // Cursor below viewport
-		newStart = sectionIndex - viewport.Size + 1
-		// default: // Cursor is already visible, newStart remains viewport.Start
-	}
-
-	// Clamp Start value to valid range
-	newStart = min(max(0, newStart), max(0, viewport.Total-viewport.Size))
-
-	// Only update if the start position actually changed
-	if newStart != viewport.Start {
-		viewport.Start = newStart
-		m.Viewports[cursorSection] = viewport // Update the viewport in the map
-	}
-}
+// The duplicate ensureCursorVisible method has been removed
+// There's another implementation at line 669
