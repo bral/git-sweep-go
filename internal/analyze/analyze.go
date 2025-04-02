@@ -65,7 +65,7 @@ func Branches(
 
 		analyzed := types.AnalyzedBranch{
 			BranchInfo:  branch,
-			IsMerged:    isMerged, // Use the potentially updated status
+			IsMerged:    isMerged,    // Use the potentially updated status
 			MergeMethod: mergeMethod, // Track how branch was determined to be merged
 			IsProtected: isProtected,
 			IsCurrent:   isCurrent, // Set the new flag

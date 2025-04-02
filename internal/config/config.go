@@ -45,7 +45,7 @@ func DefaultConfig() Config {
 	return Config{
 		AgeDays:            defaultAgeDays,
 		PrimaryMainBranch:  defaultMainBranch,
-		ProtectedBranches:  []string{}, // Default is empty list
+		ProtectedBranches:  []string{},            // Default is empty list
 		MergeStrategy:      MergeStrategyStandard, // Default to standard Git behavior
 		ProtectedBranchMap: make(map[string]bool),
 	}
