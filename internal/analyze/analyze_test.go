@@ -242,6 +242,7 @@ func TestAnalyzeBranches(t *testing.T) {
 				PrimaryMainBranch:  "main",
 				ProtectedBranches:  []string{},
 				ProtectedBranchMap: map[string]bool{},
+				MergeStrategy:      config.MergeStrategyEnhanced, // Set to enhanced strategy
 			},
 			currentBranch: "main",
 			expectedCounts: map[types.BranchCategory]int{
@@ -270,6 +271,7 @@ func TestAnalyzeBranches(t *testing.T) {
 				PrimaryMainBranch:  "main",
 				ProtectedBranches:  []string{},
 				ProtectedBranchMap: map[string]bool{},
+				MergeStrategy:      config.MergeStrategyEnhanced, // Set to enhanced strategy
 			},
 			currentBranch: "main",
 			expectedCounts: map[types.BranchCategory]int{

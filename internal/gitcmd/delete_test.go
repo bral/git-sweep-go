@@ -17,11 +17,25 @@ func TestDeleteBranches(t *testing.T) {
 	ctx := context.Background()
 
 	branchesToDelete := []BranchToDelete{
-		{Name: "local-merged", IsRemote: false, IsMerged: true, Hash: "h1"},
-		{Name: "local-unmerged", IsRemote: false, IsMerged: false, Hash: "h2"},
-		{Name: "remote-branch", IsRemote: true, Remote: "origin", Hash: "h3"},
-		{Name: "fail-local", IsRemote: false, IsMerged: true, Hash: "h4"},   // Will simulate failure
-		{Name: "fail-remote", IsRemote: true, Remote: "origin", Hash: "h5"}, // Will simulate failure
+		{Name: "local-merged", IsRemote: false, IsMerged: true, Hash: "h1", MergeMethod: string(types.MergeMethodStandard)},
+		{Name: "local-unmerged", IsRemote: false, IsMerged: false, Hash: "h2", MergeMethod: ""},
+		{Name: "remote-branch", IsRemote: true, Remote: "origin", Hash: "h3", MergeMethod: ""},
+		// Will simulate failure
+		{
+			Name:        "fail-local",
+			IsRemote:    false,
+			IsMerged:    true,
+			Hash:        "h4",
+			MergeMethod: string(types.MergeMethodStandard),
+		},
+		// Will simulate failure
+		{
+			Name:        "fail-remote",
+			IsRemote:    true,
+			Remote:      "origin",
+			Hash:        "h5",
+			MergeMethod: "",
+		},
 	}
 
 	expectedResultsSuccess := []types.DeleteResult{
@@ -40,8 +54,13 @@ func TestDeleteBranches(t *testing.T) {
 		},
 		// Failed deletions should have an empty hash
 		{
-			BranchName: "fail-local", IsRemote: false, Success: false, Message: "Failed: simulated local delete error",
-			Cmd: "git branch -d fail-local", DeletedHash: "",
+			BranchName: "fail-local",
+			IsRemote:   false,
+			Success:    false,
+			Message:    "Failed: simulated local delete error",
+			// Updated to show both commands with fallback
+			Cmd:         "git branch -d fail-local → git branch -D fail-local",
+			DeletedHash: "",
 		},
 		{
 			BranchName: "fail-remote", IsRemote: true, RemoteName: "origin", Success: false,
@@ -49,6 +68,7 @@ func TestDeleteBranches(t *testing.T) {
 		},
 	}
 
+	// Update the expected dry run results to match the regular results
 	expectedResultsDryRun := []types.DeleteResult{
 		{
 			BranchName: "local-merged", IsRemote: false, Success: true,
@@ -90,7 +110,12 @@ func TestDeleteBranches(t *testing.T) {
 			case strings.HasPrefix(cmdStr, "push origin --delete remote-branch"):
 				return "To github.com:user/repo\n - [deleted]         remote-branch", nil
 			case strings.HasPrefix(cmdStr, "branch -d fail-local"):
-				// Simulate failure by returning an error
+				// First attempt fails with not fully merged error
+				errStr := "error: The branch 'fail-local' is not fully merged.\n" +
+					"If you are sure you want to delete it, run 'git branch -D fail-local'."
+				return "", fmt.Errorf("git command failed: exit status 1\nargs: %v\nstderr: %s", args, errStr)
+			case strings.HasPrefix(cmdStr, "branch -D fail-local"):
+				// Fallback attempt with -D also fails with a different error
 				errStr := "simulated local delete error"
 				return "", fmt.Errorf("git command failed: exit status 1\nargs: %v\nstderr: %s", args, errStr)
 			case strings.HasPrefix(cmdStr, "push origin --delete fail-remote"):
@@ -210,7 +235,13 @@ func TestDeleteBranches(t *testing.T) {
 	// --- Test Case 5: Varied Error Formats ---
 	t.Run("Varied Error Formats", func(t *testing.T) {
 		branches := []BranchToDelete{
-			{Name: "err-no-stderr", IsRemote: false, IsMerged: true, Hash: "h-err1"},
+			{
+				Name:        "err-no-stderr",
+				IsRemote:    false,
+				IsMerged:    true,
+				Hash:        "h-err1",
+				MergeMethod: string(types.MergeMethodStandard),
+			},
 			{Name: "err-with-stderr", IsRemote: false, IsMerged: false, Hash: "h-err2"},
 			{Name: "err-empty-stderr", IsRemote: true, Remote: "origin", Hash: "h-err3"},
 		}
@@ -218,7 +249,7 @@ func TestDeleteBranches(t *testing.T) {
 			{
 				BranchName: "err-no-stderr", IsRemote: false, Success: false,
 				Message: "Failed: plain error message",
-				Cmd:     "git branch -d err-no-stderr",
+				Cmd:     "git branch -d err-no-stderr → git branch -D err-no-stderr",
 			},
 			{
 				BranchName: "err-with-stderr", IsRemote: false, Success: false,
@@ -236,6 +267,11 @@ func TestDeleteBranches(t *testing.T) {
 			cmdStr := strings.Join(args, " ")
 			switch {
 			case strings.HasPrefix(cmdStr, "branch -d err-no-stderr"):
+				// Trigger fallback by returning a "not fully merged" error
+				return "", fmt.Errorf("error: The branch 'err-no-stderr' is not fully merged.\n" +
+					"If you are sure you want to delete it, run 'git branch -D err-no-stderr'")
+			case strings.HasPrefix(cmdStr, "branch -D err-no-stderr"):
+				// The fallback should also fail with the plain error
 				return "", errors.New("plain error message") // Error without "stderr:"
 			case strings.HasPrefix(cmdStr, "branch -D err-with-stderr"):
 				return "", fmt.Errorf("git command failed: exit status 1\nargs: %v\nstderr: %s", args, "useful info from stderr")
