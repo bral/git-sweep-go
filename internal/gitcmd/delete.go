@@ -11,11 +11,12 @@ import (
 
 // BranchToDelete holds information needed to delete a specific branch.
 type BranchToDelete struct {
-	Name     string
-	IsRemote bool
-	Remote   string // Only used if IsRemote is true
-	IsMerged bool   // Used to determine -d vs -D for local delete
-	Hash     string // Potentially useful for logging/confirmation
+	Name        string
+	IsRemote    bool
+	Remote      string // Only used if IsRemote is true
+	IsMerged    bool   // Used to determine -d vs -D for local delete
+	Hash        string // Potentially useful for logging/confirmation
+	MergeMethod string // Tracks how branch was detected as merged: "standard" or "enhanced"
 }
 
 // DeleteBranches attempts to delete the specified local and remote branches.
@@ -46,8 +47,17 @@ func DeleteBranches(ctx context.Context, branches []BranchToDelete, dryRun bool)
 		} else {
 			// Local deletion
 			if branch.IsMerged {
-				cmdArgs = []string{"branch", "-d", branch.Name} // Safe delete
-				cmdString = fmt.Sprintf("git branch -d %s", branch.Name)
+				// For standard merge detection (git branch --merged), use -d (safe delete)
+				// For enhanced merge detection (git cherry -v), use -D (force delete)
+				// Also use -D for non-merged branches (unchanged behavior)
+				if branch.MergeMethod == string(types.MergeMethodStandard) {
+					// Try to use the safe delete first, but be prepared to handle failure
+					cmdArgs = []string{"branch", "-d", branch.Name} // Safe delete
+					cmdString = fmt.Sprintf("git branch -d %s", branch.Name)
+				} else {
+					cmdArgs = []string{"branch", "-D", branch.Name} // Force delete
+					cmdString = fmt.Sprintf("git branch -D %s", branch.Name)
+				}
 			} else {
 				cmdArgs = []string{"branch", "-D", branch.Name} // Force delete
 				cmdString = fmt.Sprintf("git branch -D %s", branch.Name)
@@ -64,6 +74,34 @@ func DeleteBranches(ctx context.Context, branches []BranchToDelete, dryRun bool)
 
 		// Execute the actual command
 		_, err := RunGitCommand(ctx, cmdArgs...)
+
+		// Check if we failed with safe delete but could retry with force delete
+		if err != nil && !branch.IsRemote && branch.IsMerged &&
+			branch.MergeMethod == string(types.MergeMethodStandard) &&
+			strings.Contains(err.Error(), "not fully merged") {
+			// Try again with -D
+			retryArgs := []string{"branch", "-D", branch.Name}
+			retryCmdString := fmt.Sprintf("git branch -D %s", branch.Name)
+
+			// Notify about the retry in the result
+			result.Message = "Safe delete failed, retrying with force delete..."
+			result.Cmd += " → " + retryCmdString // Show both commands in history
+
+			// Execute the retry
+			_, retryErr := RunGitCommand(ctx, retryArgs...)
+
+			if retryErr == nil {
+				// Retry succeeded
+				result.Success = true
+				result.Message = "Successfully deleted (required force delete)"
+				result.DeletedHash = branch.Hash
+				results = append(results, result)
+				continue
+			}
+			// If retry also failed, fall through to regular error handling
+			err = retryErr
+		}
+
 		if err != nil {
 			result.Success = false
 			// Attempt to extract a cleaner error message from the potentially multi-line stderr

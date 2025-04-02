@@ -218,6 +218,18 @@ safely (both locally and optionally on the remote).`,
 			}
 		}
 
+		// Apply merge strategy override if provided
+		if strategyOverride, _ := cmd.Flags().GetString("merge-strategy"); strategyOverride != "" {
+			// Validate the merge strategy
+			if strategyOverride == config.MergeStrategyStandard || strategyOverride == config.MergeStrategyEnhanced {
+				logDebugf("Overriding MergeStrategy with flag value: %q\n", strategyOverride)
+				appConfig.MergeStrategy = strategyOverride
+			} else {
+				logDebugf("Invalid merge strategy '%s', using config value: %s\n",
+					strategyOverride, appConfig.MergeStrategy)
+			}
+		}
+
 		if appConfig.ProtectedBranchMap == nil {
 			logDebugln("ProtectedBranchMap was nil, initializing.")
 			appConfig.ProtectedBranchMap = make(map[string]bool)
@@ -225,11 +237,27 @@ safely (both locally and optionally on the remote).`,
 				appConfig.ProtectedBranchMap[branch] = true
 			}
 		}
+
+		// Show final configuration after merging flags and configs
+		logDebugf("Configuration loaded. AgeDays: %d, Main: %s, Protected: %v, MergeStrategy: %s\n",
+			appConfig.AgeDays, appConfig.PrimaryMainBranch, appConfig.ProtectedBranches, appConfig.MergeStrategy)
+
 		logDebugln("Finished PersistentPreRunE.")
 		return nil // No error from pre-run
 	},
 	Run: func(cmd *cobra.Command, _ []string) { // Renamed args to _
-		// Check for quick-status flag first
+		// Check for print-config flag first
+		printConfig, _ := cmd.Flags().GetBool("print-config")
+		if printConfig {
+			_, _ = fmt.Fprintln(os.Stdout, "Git-Sweep Configuration:")
+			_, _ = fmt.Fprintf(os.Stdout, "- Age Days: %d\n", appConfig.AgeDays)
+			_, _ = fmt.Fprintf(os.Stdout, "- Primary Main Branch: %s\n", appConfig.PrimaryMainBranch)
+			_, _ = fmt.Fprintf(os.Stdout, "- Protected Branches: %v\n", appConfig.ProtectedBranches)
+			_, _ = fmt.Fprintf(os.Stdout, "- Merge Strategy: %s\n", appConfig.MergeStrategy)
+			os.Exit(0)
+		}
+
+		// Check for quick-status flag next
 		quickStatus, _ := cmd.Flags().GetBool("quick-status")
 		if quickStatus {
 			runQuickStatus(cmd.Context()) // Pass context
@@ -390,6 +418,11 @@ func init() {
 		"Override config: The single main branch name to check merge status against (empty uses config default).")
 	rootCmd.PersistentFlags().StringSlice("protected", []string{},
 		"Override config: Comma-separated list of protected branch names.")
+	rootCmd.PersistentFlags().String("merge-strategy", "",
+		fmt.Sprintf("Override config: Strategy for detecting merged branches: '%s' or '%s' (empty uses config default).",
+			config.MergeStrategyStandard, config.MergeStrategyEnhanced))
+	// Add print-config flag
+	rootCmd.Flags().Bool("print-config", false, "Print the current configuration and exit.")
 	// Add quick-status flag (Bool, local to root command)
 	rootCmd.Flags().Bool("quick-status", false, "Print a quick summary of candidate branches and exit.")
 }

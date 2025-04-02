@@ -41,28 +41,32 @@ func Branches(
 		isCurrent := branch.Name == currentBranchName
 		isProtected := protectedMap[branch.Name] || isCurrent || branch.Name == cfg.PrimaryMainBranch
 
+		// Start with basic merge check (git branch --merged)
 		isMerged := mergedStatus[branch.Name]
+		mergeMethod := types.MergeMethodStandard // Default method is standard
 
-		// If not merged by ancestry check and not protected, perform the 'git cherry -v' check
-		if !isMerged && !isProtected {
+		// If using enhanced strategy and branch not merged by ancestry check and not protected,
+		// perform the 'git cherry -v' check
+		if !isMerged && !isProtected && cfg.MergeStrategy == config.MergeStrategyEnhanced {
 			var cherryErr error
-			// Use the new gitcmd.AreChangesIncluded function.
-			isMerged, cherryErr = gitcmd.AreChangesIncluded(ctx, cfg.PrimaryMainBranch, branch.Name)
+			// Use the gitcmd.AreChangesIncluded function for advanced detection
+			cherryDetected, cherryErr := gitcmd.AreChangesIncluded(ctx, cfg.PrimaryMainBranch, branch.Name)
 			if cherryErr != nil {
 				// Log the error and treat the branch as not merged for safety.
 				// We return the error to halt processing, as a failed check is ambiguous.
-				// Consider changing this to log and continue if partial results are acceptable.
-				// TODO: Implement structured logging if desired instead of just returning error.
-				// Return error to signal failure during analysis
 				return nil, fmt.Errorf("failed git cherry check for branch %q: %w", branch.Name, cherryErr)
-				// Alternative: Log and continue, treating as unmerged:
-				// isMerged = false
+			}
+
+			if cherryDetected {
+				isMerged = true
+				mergeMethod = types.MergeMethodEnhanced // This branch was detected via cherry check
 			}
 		}
 
 		analyzed := types.AnalyzedBranch{
 			BranchInfo:  branch,
 			IsMerged:    isMerged, // Use the potentially updated status
+			MergeMethod: mergeMethod, // Track how branch was determined to be merged
 			IsProtected: isProtected,
 			IsCurrent:   isCurrent, // Set the new flag
 			// Calculate IsOldByAge based on config and last commit date

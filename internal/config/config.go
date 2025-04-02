@@ -18,6 +18,14 @@ const (
 	defaultConfigFile = "config.toml"
 	defaultAgeDays    = 90
 	defaultMainBranch = "main"
+
+	// Merge strategy constants
+
+	// MergeStrategyStandard uses only git branch --merged for detecting merged branches
+	MergeStrategyStandard = "standard"
+
+	// MergeStrategyEnhanced uses git branch --merged plus git cherry -v for enhanced detection
+	MergeStrategyEnhanced = "enhanced"
 )
 
 // Config holds the application configuration settings.
@@ -26,6 +34,7 @@ type Config struct {
 	AgeDays           int      `toml:"age_days"`
 	PrimaryMainBranch string   `toml:"primary_main_branch"`
 	ProtectedBranches []string `toml:"protected_branches"`
+	MergeStrategy     string   `toml:"merge_strategy"` // Strategy for detecting merged branches
 
 	// Internal map for faster lookups, not loaded from TOML directly
 	ProtectedBranchMap map[string]bool `toml:"-"`
@@ -37,6 +46,7 @@ func DefaultConfig() Config {
 		AgeDays:            defaultAgeDays,
 		PrimaryMainBranch:  defaultMainBranch,
 		ProtectedBranches:  []string{}, // Default is empty list
+		MergeStrategy:      MergeStrategyStandard, // Default to standard Git behavior
 		ProtectedBranchMap: make(map[string]bool),
 	}
 }

@@ -61,6 +61,27 @@ func FirstRunSetup(reader *bufio.Reader, writer io.Writer) (Config, error) {
 		}
 	} // else keep default (empty list)
 
+	// Prompt for Merge Strategy
+	_, _ = fmt.Fprintln(writer, "\nSelect merge detection strategy:")
+	_, _ = fmt.Fprintln(writer, "  1. Standard - Use Git's native 'branch --merged' only (Recommended)")
+	_, _ = fmt.Fprintln(writer, "     This detects branches that Git considers fully merged.")
+	_, _ = fmt.Fprintln(writer, "     Branches can be deleted with 'git branch -d'.")
+	_, _ = fmt.Fprintln(writer, "  2. Enhanced - Also detect using Git cherry-pick check")
+	_, _ = fmt.Fprintln(writer, "     This can find branches with equivalent changes.")
+	_, _ = fmt.Fprintln(writer, "     Some branches will require 'git branch -D' to delete.")
+	_, _ = fmt.Fprintf(writer, "Choose strategy [1]: ")
+	input, _ = reader.ReadString('\n')
+	input = strings.TrimSpace(input)
+
+	if input == "2" {
+		cfg.MergeStrategy = MergeStrategyEnhanced
+		_, _ = fmt.Fprintln(writer, "Using Enhanced merge detection.")
+	} else {
+		// Default to standard for empty input or any non-2 value
+		cfg.MergeStrategy = MergeStrategyStandard
+		_, _ = fmt.Fprintln(writer, "Using Standard merge detection.")
+	}
+
 	// Populate the map based on the final list
 	cfg.ProtectedBranchMap = make(map[string]bool)
 	for _, branch := range cfg.ProtectedBranches {

@@ -47,6 +47,11 @@ var (
 	// Unused styles after refactoring to simpler indicators
 	// progressMarkerStyle = selectedStyle
 	// progressInfoStyle   = helpStyle
+
+	// Status indicator styles
+	mergedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#55CCAA")) // Teal for merged status
+	oldStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#CCAA55")) // Amber for old status
+
 	categoryStyleMap = map[types.BranchCategory]lipgloss.Style{
 		// Protected category is handled separately (keyBranches)
 		types.CategoryActive:      activeStyle,  // Style for the label text only
@@ -917,9 +922,40 @@ func (m Model) renderSuggestedBranches(b *strings.Builder, _ *int) {
 				remoteCheckbox = selectedStyle.Render("[x]")
 			}
 		}
+		// Display separate status indicators for merge status and age
+		mergedStatus := ""
+		ageStatus := ""
 
-		categoryStyle := categoryStyleMap[branch.Category]
-		categoryText := categoryStyle.Render("(" + string(branch.Category) + ")")
+		// Set merge status
+		if branch.IsMerged {
+			if branch.MergeMethod == types.MergeMethodEnhanced {
+				mergedStatus = mergedStyle.Render("(Merged:Enhanced)")
+			} else {
+				mergedStatus = mergedStyle.Render("(Merged:Standard)")
+			}
+		}
+
+		// Set age status
+		if branch.IsOldByAge {
+			// Use a generic old message since we don't have access to the config here
+			ageStatus = oldStyle.Render("(Old)")
+		}
+		// Combine the statuses
+		var categoryText string
+
+		// Use a switch statement instead of if-else chain
+		switch {
+		case mergedStatus != "" && ageStatus != "":
+			categoryText = mergedStatus + " " + ageStatus
+		case mergedStatus != "":
+			categoryText = mergedStatus
+		case ageStatus != "":
+			categoryText = ageStatus
+		default:
+			// For active branches, still use the category style
+			categoryStyle := categoryStyleMap[branch.Category]
+			categoryText = categoryStyle.Render("(" + string(branch.Category) + ")")
+		}
 
 		// Construct the line with appropriate styling for each part
 		// Use a consistent formatting for the line to ensure alignment
@@ -1028,6 +1064,7 @@ func (m Model) renderOtherActiveBranches(b *strings.Builder, _ *int) {
 			remoteInfo = remoteDimmedStyle.Render(fmt.Sprintf("(%s/%s)", branch.Remote, branch.Name))
 		}
 
+		// For active branches, we still just show the category
 		categoryText := activeStyle.Render("(" + string(branch.Category) + ")")
 
 		line := fmt.Sprintf("Local: %s %s | Remote: %s %s %s",
@@ -1112,14 +1149,51 @@ func (m Model) renderConfirmingState(b *strings.Builder) {
 		hasLocal := false
 		for _, bd := range branchesToDelete {
 			if !bd.IsRemote {
-				style := lipgloss.NewStyle()
-				delType := "-d (safe)"
-				if !bd.IsMerged {
+				// Define styles based on deletion method
+				var (
+					style      lipgloss.Style
+					delType    string
+					labelStyle lipgloss.Style
+				)
+
+				// If it's merged, check which method determined it was merged
+				if bd.IsMerged {
+					if bd.MergeMethod == string(types.MergeMethodEnhanced) {
+						// For enhanced detection, we use -D
+						style = forceDeleteStyle
+						delType = "-D"
+						labelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF8800"))
+						hasForceDeletes = true
+					} else {
+						// Standard git branch --merged detection
+						style = lipgloss.NewStyle()
+						delType = "-d"
+						labelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#88FF88"))
+					}
+				} else {
+					// For non-merged branches, we use -D
 					style = forceDeleteStyle
-					delType = "-D (FORCE)"
+					delType = "-D"
+					labelStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF0000"))
 					hasForceDeletes = true
 				}
-				b.WriteString(style.Render(fmt.Sprintf("  - Delete '%s' (%s)\n", bd.Name, delType)))
+
+				// Format with clear indicators
+				method := ""
+				if bd.IsMerged {
+					if bd.MergeMethod == string(types.MergeMethodEnhanced) {
+						method = labelStyle.Render(" [Enhanced Detection]")
+					} else {
+						method = labelStyle.Render(" [Standard Git]")
+					}
+				} else {
+					method = labelStyle.Render(" [UNMERGED]")
+				}
+
+				fmt.Fprintf(b, "  - Delete '%s' %s %s\n",
+					style.Render(bd.Name),
+					style.Render(delType),
+					method)
 				hasLocal = true
 			}
 		}
@@ -1220,7 +1294,12 @@ func (m Model) GetBranchesToDelete() []gitcmd.BranchToDelete {
 		// Check if it's selectable before adding
 		if m.isSelectable(originalIndex) {
 			branches = append(branches, gitcmd.BranchToDelete{
-				Name: branchInfo.Name, IsRemote: false, Remote: "", IsMerged: branchInfo.IsMerged, Hash: branchInfo.CommitHash,
+				Name:        branchInfo.Name,
+				IsRemote:    false,
+				Remote:      "",
+				IsMerged:    branchInfo.IsMerged,
+				Hash:        branchInfo.CommitHash,
+				MergeMethod: string(branchInfo.MergeMethod),
 			})
 		}
 	}
@@ -1232,11 +1311,12 @@ func (m Model) GetBranchesToDelete() []gitcmd.BranchToDelete {
 		// Check if it's selectable and has a remote before adding
 		if m.isSelectable(originalIndex) && branchInfo.Remote != "" {
 			branches = append(branches, gitcmd.BranchToDelete{
-				Name:     branchInfo.Name,
-				IsRemote: true,
-				Remote:   branchInfo.Remote,
-				IsMerged: branchInfo.IsMerged,
-				Hash:     branchInfo.CommitHash,
+				Name:        branchInfo.Name,
+				IsRemote:    true,
+				Remote:      branchInfo.Remote,
+				IsMerged:    branchInfo.IsMerged,
+				Hash:        branchInfo.CommitHash,
+				MergeMethod: string(branchInfo.MergeMethod),
 			})
 		}
 	}

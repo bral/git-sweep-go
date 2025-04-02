@@ -27,6 +27,16 @@ const (
 	CategoryUnmergedOld BranchCategory = "UnmergedOld"
 )
 
+// MergeDetectionMethod indicates how a branch was determined to be merged
+type MergeDetectionMethod string
+
+const (
+	// MergeMethodStandard indicates branch was found by git branch --merged
+	MergeMethodStandard MergeDetectionMethod = "standard"
+	// MergeMethodEnhanced indicates branch was found by git cherry -v check
+	MergeMethodEnhanced MergeDetectionMethod = "enhanced"
+)
+
 // AnalyzedBranch contains processed branch info for UI and decisions.
 type AnalyzedBranch struct {
 	BranchInfo  // Embedded raw info
@@ -35,6 +45,7 @@ type AnalyzedBranch struct {
 	IsProtected bool
 	IsCurrent   bool // Added flag for current branch
 	Category    BranchCategory
+	MergeMethod MergeDetectionMethod // Tracks how a branch was determined to be merged
 }
 
 // DeleteResult holds outcome of one delete attempt.
