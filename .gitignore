@@ -15,6 +15,9 @@ git-sweep-test.exe
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
+# Editor
+.vscode
+
 # Go workspace file
 go.work
 go.work.sum
