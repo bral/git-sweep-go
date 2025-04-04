@@ -7,6 +7,7 @@ import (
 	"errors"  // Added for error checking
 	"fmt"
 	"os"
+	"path/filepath" // Added for config path handling
 	"runtime/debug" // Added for build info
 	"time"          // Added for branch age calculation
 
@@ -257,8 +258,9 @@ safely (both locally and optionally on the remote).`,
 		return nil // No error from pre-run
 	},
 	Run: func(cmd *cobra.Command, _ []string) { // Renamed args to _
-		// Check for quick-status flag first
+		// Check for quick-status flag
 		quickStatus, _ := cmd.Flags().GetBool("quick-status")
+		var dryRun bool // Declare but don't initialize yet
 		if quickStatus {
 			runQuickStatus(cmd.Context()) // Pass context
 			os.Exit(0)
@@ -355,7 +357,8 @@ safely (both locally and optionally on the remote).`,
 		logDebugf("-> Found %d displayable (non-protected) branches.\n", len(displayableBranches))
 
 		// Check for Dry Run *before* launching TUI
-		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		// Use the dryRun variable we already declared
+		dryRun, _ = cmd.Flags().GetBool("dry-run")
 		if dryRun {
 			// Pass only displayable branches to dry run print function
 			printDryRunActions(displayableBranches)
@@ -414,4 +417,52 @@ func init() {
 		"Override config: Comma-separated list of protected branch names.")
 	// Add quick-status flag (Bool, local to root command)
 	rootCmd.Flags().Bool("quick-status", false, "Print a quick summary of candidate branches and exit.")
+
+	// Add a show-config command to display configuration details
+	showConfigCmd := &cobra.Command{
+		Use:   "show-config",
+		Short: "Show the current configuration or initialize if not found",
+		Long: `The show-config command displays the current git-sweep configuration
+settings loaded from the configuration file. If a configuration file
+is not found, it will guide you through the first-time setup process.`,
+		Run: func(cmd *cobra.Command, _ []string) {
+			customConfigPath, _ := cmd.Flags().GetString("config")
+
+			// Use the global config that was already loaded in PersistentPreRunE
+			cfg := appConfig
+
+			// Determine the expected config path for display purposes
+			configPath := customConfigPath
+			if configPath == "" {
+				userConfigDir, userDirErr := os.UserConfigDir()
+				if userDirErr == nil {
+					configPath = filepath.Join(userConfigDir, "git-sweep", "config.toml")
+				} else {
+					configPath = "~/.config/git-sweep/config.toml"
+				}
+			}
+
+			// Check if the config file actually exists
+			fileExists := true
+			_, statErr := os.Stat(configPath)
+			if statErr != nil && os.IsNotExist(statErr) {
+				fileExists = false
+			}
+
+			// Display configuration information
+			if fileExists {
+				_, _ = fmt.Fprintf(os.Stdout, "Configuration loaded from: %s\n\n", configPath)
+			} else {
+				_, _ = fmt.Fprintf(os.Stdout, "Configuration file not found at: %s\n", configPath)
+				_, _ = fmt.Fprintln(os.Stdout, "Using default or command-line configured values.")
+				_, _ = fmt.Fprintln(os.Stdout, "")
+			}
+
+			_, _ = fmt.Fprintln(os.Stdout, "Current Configuration:")
+			_, _ = fmt.Fprintf(os.Stdout, "- Age Days: %d\n", cfg.AgeDays)
+			_, _ = fmt.Fprintf(os.Stdout, "- Primary Main Branch: %s\n", cfg.PrimaryMainBranch)
+			_, _ = fmt.Fprintf(os.Stdout, "- Protected Branches: %v\n", cfg.ProtectedBranches)
+		},
+	}
+	rootCmd.AddCommand(showConfigCmd)
 }
