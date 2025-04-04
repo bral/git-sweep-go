@@ -254,7 +254,7 @@ protected_branches = ["protected-config"]
 	// Let's assume the integration test environment leads cherry-v to consider all non-protected as merged for now.
 	// Expected counts based on actual test failure: 4 merged, 0 unmerged old.
 	// TODO: Re-evaluate if the test repo setup or cherry-v interaction needs refinement.
-	expectedOutput := "[git-sweep] Candidates: 4 merged, 0 unmerged old." // Updated expectation based on actual test failure
+	expectedOutput := "[git-sweep] Found 4 branches to clean up (4 merged, 0 old branches)." // Updated for the new enhanced format
 	if !strings.Contains(output, expectedOutput) {
 		t.Errorf("Expected quick status output to contain %q, got:\n%s", expectedOutput, output)
 	}
