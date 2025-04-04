@@ -138,7 +138,7 @@ else
         # Start building the JSON payload
         cat > "$TEMP_JSON" << EOF
 {
-  "model": "gpt-4o",
+  "model": "gpt-3.5-turbo",
   "messages": [
     {
       "role": "system",
@@ -197,7 +197,7 @@ EOF
             # Create error log for debugging
             ERROR_LOG="openai_error_$(date +%Y%m%d_%H%M%S).log"
             echo "=== API REQUEST ===" > "$ERROR_LOG"
-            cat "$TEMP_JSON" >> "$ERROR_LOG" 2>/dev/null || echo "Temp JSON file not found" >> "$ERROR_LOG"
+            echo "$TEMP_JSON" >> "$ERROR_LOG" 2>/dev/null || echo "Temp JSON file not found" >> "$ERROR_LOG"
             echo -e "\n=== API RESPONSE ===" >> "$ERROR_LOG" 
             echo "$API_RESPONSE" | jq '.' >> "$ERROR_LOG" 2>/dev/null || echo "$API_RESPONSE" >> "$ERROR_LOG"
             echo "📝 Detailed error information saved to $ERROR_LOG"
