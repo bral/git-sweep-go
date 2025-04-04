@@ -5,6 +5,7 @@ import (
 	"context" // Added for deletion context
 	"fmt"
 	"strings" // Added for View
+	"time"    // Added for age calculation
 
 	"github.com/charmbracelet/bubbles/spinner" // Added spinner
 	tea "github.com/charmbracelet/bubbletea"
@@ -591,12 +592,13 @@ func (m Model) renderKeyBranches(b *strings.Builder, itemIndex *int) {
 			remoteInfo = fmt.Sprintf("(%s/%s)", branch.Remote, branch.Name)
 		}
 
-		categoryText := protectedStyle.Render("(Protected)")
+		status := "Protected"
 		if branch.IsCurrent {
-			categoryText = protectedStyle.Render("(Current)")
+			status = "Current"
 		}
+		categoryText := protectedStyle.Render(fmt.Sprintf("Status: %s", status))
 
-		line := fmt.Sprintf("Local: %s %s | Remote: %s %s %s",
+		line := fmt.Sprintf("Local: %s %s | Remote: %s %s | %s",
 			localCheckbox, branch.Name, remoteCheckbox, remoteInfo, categoryText)
 
 		b.WriteString(cursor + " " + lineStyle.Render(line) + "\n")
@@ -670,9 +672,25 @@ func (m Model) renderSuggestedBranches(b *strings.Builder, itemIndex *int) {
 		}
 
 		categoryStyle := categoryStyleMap[branch.Category]
-		categoryText := categoryStyle.Render("(" + string(branch.Category) + ")")
 
-		line := fmt.Sprintf("Local: %s %s | Remote: %s %s %s",
+		// Enhanced status display with age information
+		statusText := ""
+		daysOld := int(time.Since(branch.LastCommitDate).Hours() / 24)
+
+		switch branch.Category {
+		case types.CategoryMergedOld:
+			statusText = fmt.Sprintf("Status: Merged (%d days)", daysOld)
+		case types.CategoryUnmergedOld:
+			statusText = fmt.Sprintf("Status: Old (%d days)", daysOld)
+		case types.CategoryProtected:
+			statusText = "Status: Protected"
+		case types.CategoryActive:
+			statusText = fmt.Sprintf("Status: Active (%d days)", daysOld)
+		}
+
+		categoryText := categoryStyle.Render(statusText)
+
+		line := fmt.Sprintf("Local: %s %s | Remote: %s %s | %s",
 			localCheckbox, branch.Name, remoteCheckbox, remoteInfo, categoryText)
 
 		// Apply styling based on cursor and category
@@ -733,9 +751,10 @@ func (m Model) renderOtherActiveBranches(b *strings.Builder, itemIndex *int) {
 			remoteInfo = fmt.Sprintf("(%s/%s)", branch.Remote, branch.Name)
 		}
 
-		categoryText := activeStyle.Render("(" + string(branch.Category) + ")")
+		daysOld := int(time.Since(branch.LastCommitDate).Hours() / 24)
+		categoryText := activeStyle.Render(fmt.Sprintf("Status: Active (%d days)", daysOld))
 
-		line := fmt.Sprintf("Local: %s %s | Remote: %s %s %s",
+		line := fmt.Sprintf("Local: %s %s | Remote: %s %s | %s",
 			localCheckbox, branch.Name, remoteCheckbox, remoteInfo, categoryText)
 
 		b.WriteString(cursor + " " + lineStyle.Render(line) + "\n")

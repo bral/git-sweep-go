@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"runtime/debug" // Added for build info
+	"time"          // Added for branch age calculation
 
 	"github.com/bral/git-sweep-go/internal/analyze"
 	"github.com/bral/git-sweep-go/internal/config" // Added config import
@@ -61,7 +62,21 @@ func printDryRunActions(displayableBranches []types.AnalyzedBranch) {
 		if !branch.IsMerged {
 			delType = "-D (force)"
 		}
-		_, _ = fmt.Fprintf(os.Stdout, "  - Delete '%s' (%s)\n", branch.Name, delType)
+
+		// Add status with age information
+		statusInfo := ""
+		daysOld := int(time.Since(branch.LastCommitDate).Hours() / 24)
+
+		switch branch.Category {
+		case types.CategoryMergedOld:
+			statusInfo = fmt.Sprintf(" | Status: Merged (%d days)", daysOld)
+		case types.CategoryUnmergedOld:
+			statusInfo = fmt.Sprintf(" | Status: Old (%d days)", daysOld)
+		case types.CategoryProtected, types.CategoryActive:
+			// No additional status info for protected/active branches in dry run
+		}
+
+		_, _ = fmt.Fprintf(os.Stdout, "  - Delete '%s' (%s)%s\n", branch.Name, delType, statusInfo)
 		hasLocal = true
 	}
 	if !hasLocal {
@@ -78,7 +93,20 @@ func printDryRunActions(displayableBranches []types.AnalyzedBranch) {
 			continue
 		}
 		if branch.Remote != "" {
-			_, _ = fmt.Fprintf(os.Stdout, "  - Delete remote '%s/%s'\n", branch.Remote, branch.Name)
+			// Add status with age information
+			statusInfo := ""
+			daysOld := int(time.Since(branch.LastCommitDate).Hours() / 24)
+
+			switch branch.Category {
+			case types.CategoryMergedOld:
+				statusInfo = fmt.Sprintf(" | Status: Merged (%d days)", daysOld)
+			case types.CategoryUnmergedOld:
+				statusInfo = fmt.Sprintf(" | Status: Old (%d days)", daysOld)
+			case types.CategoryProtected, types.CategoryActive:
+				// No additional status info for protected/active branches in dry run
+			}
+
+			_, _ = fmt.Fprintf(os.Stdout, "  - Delete remote '%s/%s'%s\n", branch.Remote, branch.Name, statusInfo)
 			hasRemote = true
 		}
 	}
@@ -143,9 +171,9 @@ func runQuickStatus(ctx context.Context) {
 
 	// 6. Print Summary
 	if mergedOldCount > 0 || unmergedOldCount > 0 {
-		// Break long line
-		_, _ = fmt.Fprintf(os.Stdout, "[git-sweep] Candidates: %d merged, %d unmerged old.\n",
-			mergedOldCount, unmergedOldCount)
+		// Enhanced status format
+		_, _ = fmt.Fprintf(os.Stdout, "[git-sweep] Found %d branches to clean up (%d merged, %d old branches).\n",
+			mergedOldCount+unmergedOldCount, mergedOldCount, unmergedOldCount)
 	} else {
 		// Print a specific message when no candidates are found
 		_, _ = fmt.Fprintln(os.Stdout, "[git-sweep] No candidate branches found.")
