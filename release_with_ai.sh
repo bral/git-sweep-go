@@ -33,6 +33,20 @@ if [ -z "$OPENAI_API_KEY" ]; then
 else
     USE_AI=true
     echo "✅ OpenAI API key found. Will use AI to generate release notes."
+    
+    # Verify we can connect to the OpenAI API
+    echo "Testing OpenAI API connection..."
+    TEST_RESPONSE=$(curl -s -X GET "https://api.openai.com/v1/models" \
+        -H "Authorization: Bearer $OPENAI_API_KEY")
+    
+    if echo "$TEST_RESPONSE" | jq -e '.error' > /dev/null; then
+        ERROR_MSG=$(echo "$TEST_RESPONSE" | jq -r '.error.message')
+        echo "❌ OpenAI API connection test failed: $ERROR_MSG"
+        echo "   Please check your API key and internet connection."
+        USE_AI=false
+    else
+        echo "✅ OpenAI API connection successful."
+    fi
 fi
 
 # Get current version
@@ -118,11 +132,11 @@ else
     if [ "$USE_AI" = true ]; then
         echo "Generating AI release notes..."
         
-        # Extract project description from README
-        PROJECT_DESCRIPTION=$(head -n 5 README.md)
+        # Create a temporary file to build our JSON payload - this avoids issues with variable expansion
+        TEMP_JSON=$(mktemp)
         
-        # Prepare the data for the OpenAI API request
-        JSON_DATA=$(cat <<EOF
+        # Start building the JSON payload
+        cat > "$TEMP_JSON" << EOF
 {
   "model": "gpt-3.5-turbo",
   "messages": [
@@ -132,25 +146,62 @@ else
     },
     {
       "role": "user",
-      "content": "Create release notes for version $NEW_VERSION of git-sweep-go based on these commits:\n\n$COMMIT_LOGS\n\nProject description:\n$PROJECT_DESCRIPTION"
+      "content": "Create release notes for version $NEW_VERSION of git-sweep-go based on these commits:\\n\\n$(echo "$COMMIT_LOGS" | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')\\n\\nProject description:\\n$(head -n 5 README.md | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')"
     }
   ],
   "temperature": 0.7,
   "max_tokens": 1000
 }
 EOF
-)
 
-        # Call the OpenAI API
+        # Check if the JSON is valid (using jq as a validator)
+        if ! jq empty "$TEMP_JSON" > /dev/null 2>&1; then
+            echo "❌ Generated JSON is invalid. This is likely due to special characters in commit messages."
+            echo "Falling back to a simpler JSON structure..."
+            
+            # Simplify the JSON to avoid complex escaping
+            cat > "$TEMP_JSON" << EOF
+{
+  "model": "gpt-3.5-turbo",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a technical release note writer. Generate concise, professional release notes from Git commits. Group related changes into sections (Features, Bug Fixes, Documentation, etc). Use bullet points and keep the tone professional."
+    },
+    {
+      "role": "user",
+      "content": "Create release notes for version $NEW_VERSION of git-sweep-go. The project is a Git branch cleanup tool."
+    }
+  ],
+  "temperature": 0.7,
+  "max_tokens": 1000
+}
+EOF
+        fi
+        
+        # Call the OpenAI API with the JSON from our temp file
         API_RESPONSE=$(curl -s -X POST "https://api.openai.com/v1/chat/completions" \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer $OPENAI_API_KEY" \
-            -d "$JSON_DATA")
+            --data-binary "@$TEMP_JSON")
+            
+        # Clean up the temp file
+        rm -f "$TEMP_JSON"
         
         # Check for API errors
         if echo "$API_RESPONSE" | jq -e '.error' > /dev/null; then
             ERROR_MSG=$(echo "$API_RESPONSE" | jq -r '.error.message')
-            echo "❌ OpenAI API error: $ERROR_MSG"
+            ERROR_TYPE=$(echo "$API_RESPONSE" | jq -r '.error.type')
+            echo "❌ OpenAI API error: $ERROR_MSG (Type: $ERROR_TYPE)"
+            
+            # Create error log for debugging
+            ERROR_LOG="openai_error_$(date +%Y%m%d_%H%M%S).log"
+            echo "=== API REQUEST ===" > "$ERROR_LOG"
+            echo "$TEMP_JSON" >> "$ERROR_LOG" 2>/dev/null || echo "Temp JSON file not found" >> "$ERROR_LOG"
+            echo -e "\n=== API RESPONSE ===" >> "$ERROR_LOG" 
+            echo "$API_RESPONSE" | jq '.' >> "$ERROR_LOG" 2>/dev/null || echo "$API_RESPONSE" >> "$ERROR_LOG"
+            echo "📝 Detailed error information saved to $ERROR_LOG"
+            
             echo "Falling back to conventional release notes..."
             RELEASE_NOTES="$CONVENTIONAL_NOTES"
         else
