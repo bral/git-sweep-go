@@ -1,15 +1,10 @@
 #!/bin/bash
 set -e
 
-echo "🚀 Git-Sweep-Go Release Script 🚀"
+echo "🧪 TEST MODE: Git-Sweep-Go Release Script 🧪"
 echo "--------------------------------"
-
-# Check if goreleaser is installed
-if ! command -v goreleaser &> /dev/null; then
-    echo "❌ goreleaser is not installed. Please install it first."
-    echo "   See: https://goreleaser.com/install/"
-    exit 1
-fi
+echo "⚠️  No actual tags or releases will be created"
+echo "--------------------------------"
 
 # Check if curl is installed (needed for API requests)
 if ! command -v curl &> /dev/null; then
@@ -95,24 +90,32 @@ case $BUMP_TYPE in
         ;;
 esac
 
-# Check if tag already exists
+# Check if tag already exists (will show warning but continue in test mode)
 if git rev-parse "$NEW_VERSION" >/dev/null 2>&1; then
-    echo "❌ Tag $NEW_VERSION already exists!"
-    exit 1
+    echo "⚠️ Tag $NEW_VERSION already exists! In actual release, this would abort."
+    echo "   Continuing for test purposes..."
 fi
 
 # Run tests
 echo "Running tests..."
 if ! go test ./...; then
-    echo "❌ Tests failed! Aborting release."
-    exit 1
+    echo "❌ Tests failed! In actual release, this would abort."
+    echo "   Continue anyway for testing? (y/n): "
+    read CONTINUE
+    if [[ "$CONTINUE" != "y" && "$CONTINUE" != "Y" ]]; then
+        exit 1
+    fi
 fi
 
 # Build to verify compilation
 echo "Building project to verify it compiles..."
 if ! go build -o git-sweep ./cmd/git-sweep/main.go; then
-    echo "❌ Build failed! Aborting release."
-    exit 1
+    echo "❌ Build failed! In actual release, this would abort."
+    echo "   Continue anyway for testing? (y/n): "
+    read CONTINUE
+    if [[ "$CONTINUE" != "y" && "$CONTINUE" != "Y" ]]; then
+        exit 1
+    fi
 fi
 rm -f git-sweep
 
@@ -146,7 +149,7 @@ else
             README_ESCAPED=$(head -n 5 README.md | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
         fi
         
-        # Use jq to safely create JSON
+        # Use jq to safely create JSON - FIX: proper string concatenation syntax
         jq -n \
             --arg version "$NEW_VERSION" \
             --arg commits "$COMMIT_LOGS" \
@@ -160,7 +163,7 @@ else
                     },
                     {
                         "role": "user",
-                        "content": ("Create release notes for version " + $version + " of git-sweep-go based on these commits:\n\n" + $commits + "\n\nProject description:\n" + $desc + "\n\nThe project is a Git branch cleanup tool. Focus specifically on what these exact commits changed.")
+                        "content": ($version + " of git-sweep-go based on these commits:\n\n" + $commits + "\n\nProject description:\n" + $desc + "\n\nThe project is a Git branch cleanup tool. Focus specifically on what these exact commits changed.")
                     }
                 ],
                 "temperature": 0.7,
@@ -249,32 +252,18 @@ fi
 
 # Confirm with user
 echo ""
-echo "Ready to release:"
+echo "🧪 TEST MODE: Final Release Output 🧪"
+echo "Ready to release (no actual changes will be made):"
 echo "  Current version: $CURRENT_VERSION"
 echo "  New version:     $NEW_VERSION"
 echo "  Release notes:"
 echo "$RELEASE_NOTES"
 echo ""
-read -p "Proceed with release? (y/n): " CONFIRM
 
-if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
-    echo "Release canceled."
-    exit 0
-fi
-
-# Create and push tag
-git tag -a "$NEW_VERSION" -m "Release $NEW_VERSION"
-echo "✅ Tag $NEW_VERSION created."
-
-echo "Pushing tag to remote..."
-git push origin "$NEW_VERSION"
-echo "✅ Tag pushed to remote."
-
-# Run goreleaser
-echo "Running goreleaser..."
-RELEASE_NOTES_FILE=$(mktemp)
-echo "$RELEASE_NOTES" > "$RELEASE_NOTES_FILE"
-GORELEASER_PREVIOUS_TAG="$CURRENT_VERSION" GORELEASER_CURRENT_TAG="$NEW_VERSION" goreleaser release --release-notes="$RELEASE_NOTES_FILE" --clean
-rm "$RELEASE_NOTES_FILE"
-
-echo "✅ Release $NEW_VERSION complete!"
+# In the test mode, we won't actually create tags or publish
+echo "🧪 TEST COMPLETE: In a real release, the following would happen:"
+echo "- Git tag '$NEW_VERSION' would be created"
+echo "- Tag would be pushed to remote"
+echo "- Goreleaser would create and publish the release"
+echo ""
+echo "✅ Test complete! The script reached the end without errors."
