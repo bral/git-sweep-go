@@ -135,49 +135,41 @@ else
         # Create a temporary file to build our JSON payload - this avoids issues with variable expansion
         TEMP_JSON=$(mktemp)
         
-        # Start building the JSON payload
-        cat > "$TEMP_JSON" << EOF
-{
-  "model": "gpt-3.5-turbo",
-  "messages": [
-    {
-      "role": "system",
-      "content": "You are a technical release note writer. Generate concise, professional release notes from Git commits. Group related changes into sections (Features, Bug Fixes, Documentation, etc). Use bullet points and keep the tone professional."
-    },
-    {
-      "role": "user",
-      "content": "Create release notes for version $NEW_VERSION of git-sweep-go based on these commits:\\n\\n$(echo "$COMMIT_LOGS" | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')\\n\\nProject description:\\n$(head -n 5 README.md | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')"
-    }
-  ],
-  "temperature": 0.7,
-  "max_tokens": 1000
-}
-EOF
-
-        # Check if the JSON is valid (using jq as a validator)
-        if ! jq empty "$TEMP_JSON" > /dev/null 2>&1; then
-            echo "❌ Generated JSON is invalid. This is likely due to special characters in commit messages."
-            echo "Falling back to a simpler JSON structure..."
-            
-            # Simplify the JSON to avoid complex escaping
-            cat > "$TEMP_JSON" << EOF
-{
-  "model": "gpt-3.5-turbo",
-  "messages": [
-    {
-      "role": "system",
-      "content": "You are a technical release note writer. Generate concise, professional release notes from Git commits. Group related changes into sections (Features, Bug Fixes, Documentation, etc). Use bullet points and keep the tone professional."
-    },
-    {
-      "role": "user",
-      "content": "Create release notes for version $NEW_VERSION of git-sweep-go. The project is a Git branch cleanup tool."
-    }
-  ],
-  "temperature": 0.7,
-  "max_tokens": 1000
-}
-EOF
+        # For macOS compatibility with sed
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            # Use perl for macOS (BSD sed doesn't support some GNU sed features)
+            COMMITS_ESCAPED=$(echo "$COMMIT_LOGS" | perl -pe 's/"/\\"/g' | perl -0pe 's/\n/\\n/g')
+            README_ESCAPED=$(head -n 5 README.md | perl -pe 's/"/\\"/g' | perl -0pe 's/\n/\\n/g')
+        else
+            # Use GNU sed for Linux
+            COMMITS_ESCAPED=$(echo "$COMMIT_LOGS" | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+            README_ESCAPED=$(head -n 5 README.md | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
         fi
+        
+        # Use jq to safely create JSON
+        jq -n \
+            --arg version "$NEW_VERSION" \
+            --arg commits "$COMMIT_LOGS" \
+            --arg desc "$(head -n 5 README.md)" \
+            '{
+                "model": "gpt-3.5-turbo",
+                "messages": [
+                    {
+                        "role": "system", 
+                        "content": "You are a technical release note writer. Generate concise, professional release notes from Git commits. Group related changes into sections (Features, Bug Fixes, Documentation, etc). Use bullet points and keep the tone professional."
+                    },
+                    {
+                        "role": "user",
+                        "content": "Create release notes for version " + $version + " of git-sweep-go based on these commits:\n\n" + $commits + "\n\nProject description:\n" + $desc + "\n\nThe project is a Git branch cleanup tool. Focus specifically on what these exact commits changed."
+                    }
+                ],
+                "temperature": 0.7,
+                "max_tokens": 1000
+            }' > "$TEMP_JSON"
+        
+        # Save a copy for error logging if needed
+        ERROR_LOG_FILE=$(mktemp)
+        cat "$TEMP_JSON" > "$ERROR_LOG_FILE"
         
         # Call the OpenAI API with the JSON from our temp file
         API_RESPONSE=$(curl -s -X POST "https://api.openai.com/v1/chat/completions" \
@@ -191,20 +183,26 @@ EOF
         # Check for API errors
         if echo "$API_RESPONSE" | jq -e '.error' > /dev/null; then
             ERROR_MSG=$(echo "$API_RESPONSE" | jq -r '.error.message')
-            ERROR_TYPE=$(echo "$API_RESPONSE" | jq -r '.error.type')
+            ERROR_TYPE=$(echo "$API_RESPONSE" | jq -r '.error.type // "unknown"')
             echo "❌ OpenAI API error: $ERROR_MSG (Type: $ERROR_TYPE)"
             
             # Create error log for debugging
             ERROR_LOG="openai_error_$(date +%Y%m%d_%H%M%S).log"
             echo "=== API REQUEST ===" > "$ERROR_LOG"
-            echo "$TEMP_JSON" >> "$ERROR_LOG" 2>/dev/null || echo "Temp JSON file not found" >> "$ERROR_LOG"
+            cat "$ERROR_LOG_FILE" >> "$ERROR_LOG" 2>/dev/null || echo "Request JSON not found" >> "$ERROR_LOG"
             echo -e "\n=== API RESPONSE ===" >> "$ERROR_LOG" 
             echo "$API_RESPONSE" | jq '.' >> "$ERROR_LOG" 2>/dev/null || echo "$API_RESPONSE" >> "$ERROR_LOG"
             echo "📝 Detailed error information saved to $ERROR_LOG"
             
+            # Clean up the error log file
+            rm -f "$ERROR_LOG_FILE"
+            
             echo "Falling back to conventional release notes..."
             RELEASE_NOTES="$CONVENTIONAL_NOTES"
         else
+            # Clean up the error log file
+            rm -f "$ERROR_LOG_FILE"
+            
             # Extract the generated release notes from the API response
             AI_NOTES=$(echo "$API_RESPONSE" | jq -r '.choices[0].message.content')
             
