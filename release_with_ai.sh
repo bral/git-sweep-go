@@ -152,7 +152,7 @@ else
             --arg commits "$COMMIT_LOGS" \
             --arg desc "$(head -n 5 README.md)" \
             '{
-                "model": "gpt-3.5-turbo",
+                "model": "gpt-4o",
                 "messages": [
                     {
                         "role": "system", 
