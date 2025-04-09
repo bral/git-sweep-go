@@ -827,14 +827,25 @@ func (m Model) renderConfirmingState(b *strings.Builder) {
 		hasLocal := false
 		for _, bd := range branchesToDelete {
 			if !bd.IsRemote {
-				style := lipgloss.NewStyle()
-				delType := "-d (safe)"
-				if !bd.IsMerged {
-					style = forceDeleteStyle
-					delType = "-D (FORCE)"
+				var indicator, label string
+				var style lipgloss.Style
+
+				if bd.IsMerged {
+					indicator = "✓" // Checkmark for safe
+					label = "SAFE"
+					style = successStyle // Green color defined at the top
+				} else {
+					indicator = "⚠️" // Warning symbol for force
+					label = "FORCE"
+					style = errorStyle.Bold(true) // Bold red defined at the top
 					hasForceDeletes = true
 				}
-				b.WriteString(style.Render(fmt.Sprintf("  - Delete '%s' (%s)\n", bd.Name, delType)))
+
+				// Format string with consistent alignment
+				formattedText := fmt.Sprintf("  %s Delete '%s' [%s]", indicator, bd.Name, label)
+
+				// Render with style and add newline separately to prevent potential rendering issues
+				b.WriteString(style.Render(formattedText) + "\n")
 				hasLocal = true
 			}
 		}
@@ -846,7 +857,10 @@ func (m Model) renderConfirmingState(b *strings.Builder) {
 		hasRemote := false
 		for _, bd := range branchesToDelete {
 			if bd.IsRemote {
-				fmt.Fprintf(b, "  - Delete remote '%s/%s'\n", bd.Remote, bd.Name)
+				// Format string for remote deletions with consistent indicator style
+				formattedText := fmt.Sprintf("  ✓ Delete remote '%s/%s'", bd.Remote, bd.Name)
+				// Apply styling and add newline separately
+				b.WriteString(successStyle.Render(formattedText) + "\n")
 				hasRemote = true
 			}
 		}
@@ -857,7 +871,7 @@ func (m Model) renderConfirmingState(b *strings.Builder) {
 
 	if hasForceDeletes {
 		b.WriteString("\n" + warningStyle.Render(
-			"WARNING: Branches marked with '-D (FORCE)' contain unmerged work and will be permanently lost!") + "\n")
+			"WARNING: Branches marked with [FORCE] contain unmerged work and will be permanently lost!") + "\n")
 	}
 
 	b.WriteString("\n" + confirmPromptStyle.Render("Proceed? (y/N) "))
