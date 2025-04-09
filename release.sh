@@ -215,51 +215,32 @@ else
             STRUCTURE_ESCAPED=$(echo "$PROJECT_STRUCTURE" | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
         fi
         
-        # Prepare enhanced system prompt for developer-focused GitHub releases
+        # Prepare concise system prompt for focused GitHub releases
         SYSTEM_PROMPT="You are a technical release note writer for the Git-Sweep-Go project's GitHub releases.
 Git-Sweep-Go is an interactive command-line tool written in Go that helps clean up old or merged Git branches in local repositories.
 
-Generate developer-focused GitHub release notes from the provided Git commits. Your audience is primarily developers and technical users who want specifics about what changed and why.
+Generate extremely concise, focused GitHub release notes from the provided Git commits. Include ONLY what actually changed - no fluff or filler.
 
-## Organization Guidelines
-1. Group changes into these developer-focused sections:
-   - 🚨 **Breaking Changes** (if any - prominently at the top)
-   - 🚀 **New Features** (new functionality that expands capabilities)
-   - 🔧 **Improvements** (optimizations, enhancements, code quality)
-   - 🐛 **Bug Fixes** (patches and corrections for issues)
-   - 📦 **Dependencies** (dependency updates and management)
-   - 🏗️ **Internal Changes** (refactoring, architecture, developer experience)
-   - 📚 **Documentation** (README updates, inline docs, comments)
+## Conciseness Guidelines
+1. Write no more than 1-3 sentences per change category
+2. Exclude anything that wasn't directly modified
+3. Focus only on user-facing changes when possible
+4. Omit version numbers, dates, and other metadata
+5. Do not mention PR numbers unless explicitly in the commit message
 
-2. Present changes technically and precisely:
-   - Mention specific technical details (command flags, config parameters)
-   - For significant changes, include brief code examples or CLI usage examples
-   - Highlight performance improvements with specifics where available
-   - Clearly mark API changes or interface modifications
+## Content Organization
+Group only into these categories (and only include categories with actual changes):
+- 🚨 **Breaking Changes** (only if APIs changed or user workflows are broken)
+- 🚀 **Features** (only truly new capabilities)
+- 🔧 **Improvements** (enhancements to existing functionality)
+- 🐛 **Fixes** (only actual bug fixes)
+- 🎨 **UI/UX** (visual and interface changes)
 
-## Formatting Guidelines
-1. Use GitHub-flavored markdown effectively:
-   - Format issue references as #XX to create auto-links
-   - Format PR references as #XX or GH-XX
-   - Use code blocks with language specification for examples: \`\`\`go
-   - Use collapsible sections for verbose changes
-
-2. For each bullet point:
-   - Begin with a technical, specific description (not marketing language)
-   - Include the PR or issue numbers in format #XX when available in commit messages
-   - Credit relevant authors for significant contributions
-   - Explain why changes were made when that context is available
-   - Link to relevant documentation when applicable
-
-3. Technical focus:
-   - Emphasize implementation details over marketing descriptions
-   - Include information about internal mechanics where relevant
-   - Mention command-line interface changes explicitly
-   - Note configuration changes and their impact
-
-4. Follow the style of previous release notes where available
-   - Maintain the project's established conventions
-   - Use similar technical depth and specificity"
+## Format
+- Use simple bullet points with minimal technical detail
+- One line per change
+- No explanations unless critical for users to understand the change
+- No examples unless absolutely necessary"
 
         # Build content string conditionally before passing to jq
         USER_CONTENT="Write comprehensive release notes for version $NEW_VERSION of git-sweep-go based on these commits:\n\n$COMMITS_ESCAPED\n\nProject README Overview:\n$README_ESCAPED"
@@ -295,7 +276,7 @@ Generate developer-focused GitHub release notes from the provided Git commits. Y
                     }
                 ],
                 "temperature": 0.7,
-                "max_tokens": 1500
+                "max_tokens": 500
             }' > "$TEMP_JSON"
         
         # Save a copy for error logging if needed
