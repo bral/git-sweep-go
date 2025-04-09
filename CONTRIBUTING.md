@@ -19,12 +19,23 @@ Thank you for considering contributing to `git-sweep-go`!
     ```bash
     go test ./...
     ```
-6.  **Commit Changes:** Commit your changes with a clear and descriptive message.
+6.  **Commit Changes:** Commit your changes following the required format: `type(scope): message`.
     ```bash
-    git commit -am "feat: Add feature X"
-    # or
-    # git commit -am "fix: Resolve issue Y"
+    git commit -am "update(tui): improve branch deletion UI"
+    git commit -am "fix(gitcmd): resolve fetch error handling"
     ```
+    
+    Valid types include:
+    - `add`: New features or files
+    - `update`: Improvements to existing features
+    - `fix`: Bug fixes
+    - `docs`: Documentation only changes
+    - `style`: Formatting, missing semicolons, etc; no code change
+    - `refactor`: Code changes that neither fix bugs nor add features
+    - `test`: Adding or updating tests
+    - `chore`: Changes to the build process or auxiliary tools
+    - `feat`: Alternative to 'add' for new features
+    - `perf`: Performance improvements
 7.  **Push to Your Fork:** Push your changes to your forked repository.
     ```bash
     git push origin your-feature-name
