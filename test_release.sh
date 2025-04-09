@@ -1,15 +1,10 @@
 #!/bin/bash
 set -e
 
-echo "🚀 Git-Sweep-Go Release Script (Enhanced) 🚀"
-echo "-------------------------------------------"
-
-# Check if goreleaser is installed
-if ! command -v goreleaser &> /dev/null; then
-    echo "❌ goreleaser is not installed. Please install it first."
-    echo "   See: https://goreleaser.com/install/"
-    exit 1
-fi
+echo "🧪 TEST MODE: Git-Sweep-Go Enhanced AI Release Script 🧪"
+echo "--------------------------------"
+echo "⚠️  No actual tags or releases will be created"
+echo "--------------------------------"
 
 # Check if curl is installed (needed for API requests)
 if ! command -v curl &> /dev/null; then
@@ -95,24 +90,32 @@ case $BUMP_TYPE in
         ;;
 esac
 
-# Check if tag already exists
+# Check if tag already exists (will show warning but continue in test mode)
 if git rev-parse "$NEW_VERSION" >/dev/null 2>&1; then
-    echo "❌ Tag $NEW_VERSION already exists!"
-    exit 1
+    echo "⚠️ Tag $NEW_VERSION already exists! In actual release, this would abort."
+    echo "   Continuing for test purposes..."
 fi
 
 # Run tests
 echo "Running tests..."
 if ! go test ./...; then
-    echo "❌ Tests failed! Aborting release."
-    exit 1
+    echo "❌ Tests failed! In actual release, this would abort."
+    echo "   Continue anyway for testing? (y/n): "
+    read CONTINUE
+    if [[ "$CONTINUE" != "y" && "$CONTINUE" != "Y" ]]; then
+        exit 1
+    fi
 fi
 
 # Build to verify compilation
 echo "Building project to verify it compiles..."
 if ! go build -o git-sweep ./cmd/git-sweep/main.go; then
-    echo "❌ Build failed! Aborting release."
-    exit 1
+    echo "❌ Build failed! In actual release, this would abort."
+    echo "   Continue anyway for testing? (y/n): "
+    read CONTINUE
+    if [[ "$CONTINUE" != "y" && "$CONTINUE" != "Y" ]]; then
+        exit 1
+    fi
 fi
 rm -f git-sweep
 
@@ -215,42 +218,72 @@ else
             STRUCTURE_ESCAPED=$(echo "$PROJECT_STRUCTURE" | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
         fi
         
-        # Prepare enhanced system prompt
-        SYSTEM_PROMPT="You are a technical release note writer specifically for the Git-Sweep-Go project.
-Git-Sweep-Go is an interactive command-line tool written in Go that helps clean up old or merged Git branches in a local repository.
+        # Prepare enhanced system prompt for developer-focused GitHub releases
+        SYSTEM_PROMPT="You are a technical release note writer for the Git-Sweep-Go project's GitHub releases.
+Git-Sweep-Go is an interactive command-line tool written in Go that helps clean up old or merged Git branches in local repositories.
 
-Generate professional, detailed release notes from the provided Git commits. Follow these guidelines:
-1. Group changes into appropriate sections:
-   - Features (new functionality)
-   - Enhancements (improvements to existing features)
-   - Bug Fixes
-   - Documentation
-   - Internal (refactoring, dependencies, tooling)
-   - UI/UX Improvements (related to the TUI interface)
+Generate developer-focused GitHub release notes from the provided Git commits. Your audience is primarily developers and technical users who want specifics about what changed and why.
 
-2. Use Git-Sweep-Go's domain-specific terminology correctly:
-   - Branch analysis refers to identifying branches by their merge status
-   - TUI refers to the Terminal User Interface (using bubbletea)
-   - Remote operations refer to actions on remote repositories
-   - Protected branches are those that should never be deleted
+## Organization Guidelines
+1. Group changes into these developer-focused sections:
+   - 🚨 **Breaking Changes** (if any - prominently at the top)
+   - 🚀 **New Features** (new functionality that expands capabilities)
+   - 🔧 **Improvements** (optimizations, enhancements, code quality)
+   - 🐛 **Bug Fixes** (patches and corrections for issues)
+   - 📦 **Dependencies** (dependency updates and management)
+   - 🏗️ **Internal Changes** (refactoring, architecture, developer experience)
+   - 📚 **Documentation** (README updates, inline docs, comments)
 
-3. Format each entry as a bullet point with a clear, concise description
-   - Start with a verb in present tense (Adds, Fixes, Updates, etc.)
-   - Reference issue numbers if they appear in commit messages (#XX format)
-   - Don't include commit hashes or technical details not relevant to users
+2. Present changes technically and precisely:
+   - Mention specific technical details (command flags, config parameters)
+   - For significant changes, include brief code examples or CLI usage examples
+   - Highlight performance improvements with specifics where available
+   - Clearly mark API changes or interface modifications
 
-4. Keep the tone professional but approachable
-5. Prioritize user-facing changes over internal changes
-6. If the previous release notes are provided, follow a similar style and format"
+## Formatting Guidelines
+1. Use GitHub-flavored markdown effectively:
+   - Format issue references as #XX to create auto-links
+   - Format PR references as #XX or GH-XX
+   - Use code blocks with language specification for examples: \`\`\`go
+   - Use collapsible sections for verbose changes
 
+2. For each bullet point:
+   - Begin with a technical, specific description (not marketing language)
+   - Include the PR or issue numbers in format #XX when available in commit messages
+   - Credit relevant authors for significant contributions
+   - Explain why changes were made when that context is available
+   - Link to relevant documentation when applicable
+
+3. Technical focus:
+   - Emphasize implementation details over marketing descriptions
+   - Include information about internal mechanics where relevant
+   - Mention command-line interface changes explicitly
+   - Note configuration changes and their impact
+
+4. Follow the style of previous release notes where available
+   - Maintain the project's established conventions
+   - Use similar technical depth and specificity"
+
+        # Build content string conditionally before passing to jq
+        USER_CONTENT="Write comprehensive release notes for version $NEW_VERSION of git-sweep-go based on these commits:\n\n$COMMITS_ESCAPED\n\nProject README Overview:\n$README_ESCAPED"
+        
+        # Add previous release notes if available
+        if [[ -n "$PREV_NOTES_ESCAPED" ]]; then
+            USER_CONTENT="$USER_CONTENT\n\nPrevious Release Notes Style Example:\n$PREV_NOTES_ESCAPED"
+        fi
+        
+        # Add main file content if available
+        if [[ -n "$MAIN_FILE_ESCAPED" ]]; then
+            USER_CONTENT="$USER_CONTENT\n\nMain Program Code Context:\n$MAIN_FILE_ESCAPED"
+        fi
+        
+        # Add remaining content
+        USER_CONTENT="$USER_CONTENT\n\nProject Structure:\n$STRUCTURE_ESCAPED\n\nFocus on highlighting important changes, especially those that impact users. Group related changes into appropriate sections and follow the format guidelines."
+        
         # Construct JSON payload with enhanced information
         jq -n \
             --arg version "$NEW_VERSION" \
-            --arg commits "$COMMITS_ESCAPED" \
-            --arg readme "$README_ESCAPED" \
-            --arg prevnotes "$PREV_NOTES_ESCAPED" \
-            --arg mainfile "$MAIN_FILE_ESCAPED" \
-            --arg structure "$STRUCTURE_ESCAPED" \
+            --arg user_content "$USER_CONTENT" \
             --arg sysprompt "$SYSTEM_PROMPT" \
             '{
                 "model": "gpt-4o",
@@ -261,11 +294,7 @@ Generate professional, detailed release notes from the provided Git commits. Fol
                     },
                     {
                         "role": "user",
-                        "content": ("Write comprehensive release notes for version " + $version + " of git-sweep-go based on these commits:\n\n" + $commits + "\n\nProject README Overview:\n" + $readme + 
-                        (if $prevnotes != "" then "\n\nPrevious Release Notes Style Example:\n" + $prevnotes else "") +
-                        (if $mainfile != "" then "\n\nMain Program Code Context:\n" + $mainfile else "") +
-                        "\n\nProject Structure:\n" + $structure + 
-                        "\n\nFocus on highlighting important changes, especially those that impact users. Group related changes into appropriate sections and follow the format guidelines.")
+                        "content": $user_content
                     }
                 ],
                 "temperature": 0.7,
@@ -276,8 +305,8 @@ Generate professional, detailed release notes from the provided Git commits. Fol
         ERROR_LOG_FILE=$(mktemp)
         cat "$TEMP_JSON" > "$ERROR_LOG_FILE"
         
-        # Call the OpenAI API with the enhanced JSON
-        echo "Sending request to OpenAI API (this may take a moment)..."
+        # Call the OpenAI API with the JSON from our temp file
+        echo "Calling OpenAI API with enhanced information..."
         API_RESPONSE=$(curl -s -X POST "https://api.openai.com/v1/chat/completions" \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer $OPENAI_API_KEY" \
@@ -312,21 +341,91 @@ Generate professional, detailed release notes from the provided Git commits. Fol
             # Extract the generated release notes from the API response
             AI_NOTES=$(echo "$API_RESPONSE" | jq -r '.choices[0].message.content')
             
-            # Show both options
+            # Generate basic notes for comparison (old style)
+            echo "Generating basic AI release notes for comparison..."
+            TEMP_JSON_BASIC=$(mktemp)
+            
+            # For macOS compatibility
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+                BASIC_COMMITS_ESCAPED=$(echo "$COMMIT_LOGS" | perl -pe 's/"/\\"/g' | perl -0pe 's/\n/\\n/g')
+                BASIC_README_ESCAPED=$(head -n 5 README.md | perl -pe 's/"/\\"/g' | perl -0pe 's/\n/\\n/g')
+            else
+                BASIC_COMMITS_ESCAPED=$(echo "$COMMIT_LOGS" | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+                BASIC_README_ESCAPED=$(head -n 5 README.md | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+            fi
+            
+            # Create basic payload (similar to original script)
+            # First construct the user content string before passing to jq
+            BASIC_USER_CONTENT="Create release notes for version $NEW_VERSION of git-sweep-go based on these commits:\n\n$BASIC_COMMITS_ESCAPED\n\nProject description:\n$BASIC_README_ESCAPED\n\nThe project is a Git branch cleanup tool. Focus specifically on what these exact commits changed."
+            
+            jq -n \
+                --arg user_content "$BASIC_USER_CONTENT" \
+                '{
+                    "model": "gpt-3.5-turbo",
+                    "messages": [
+                        {
+                            "role": "system", 
+                            "content": "You are a technical release note writer. Generate concise, professional release notes from Git commits. Group related changes into sections (Features, Bug Fixes, Documentation, etc). Use bullet points and keep the tone professional."
+                        },
+                        {
+                            "role": "user",
+                            "content": $user_content
+                        }
+                    ],
+                    "temperature": 0.7,
+                    "max_tokens": 1000
+                }' > "$TEMP_JSON_BASIC"
+            
+            # Call API with basic information (for comparison)
+            BASIC_API_RESPONSE=$(curl -s -X POST "https://api.openai.com/v1/chat/completions" \
+                -H "Content-Type: application/json" \
+                -H "Authorization: Bearer $OPENAI_API_KEY" \
+                --data-binary "@$TEMP_JSON_BASIC")
+            
+            rm -f "$TEMP_JSON_BASIC"
+            
+            # Check if basic API call succeeded
+            if echo "$BASIC_API_RESPONSE" | jq -e '.error' > /dev/null; then
+                echo "⚠️ Failed to generate basic release notes for comparison."
+                BASIC_AI_NOTES="[Failed to generate basic version for comparison]"
+            else
+                BASIC_AI_NOTES=$(echo "$BASIC_API_RESPONSE" | jq -r '.choices[0].message.content')
+            fi
+            
+            # Show all three options
             echo -e "\n------- Enhanced AI-Generated Release Notes -------"
             echo "$AI_NOTES"
+            echo -e "\n------- Basic AI-Generated Release Notes -------"
+            echo "$BASIC_AI_NOTES"
             echo -e "\n------- Conventional Release Notes -------"
             echo "$CONVENTIONAL_NOTES"
             echo -e "\n-----------------------------------------"
             
             # Ask the user which version to use
-            read -p "Use enhanced AI-generated release notes? (y/n): " USE_AI_NOTES
+            echo "Choose release notes format:"
+            echo "1) Enhanced AI-generated"
+            echo "2) Basic AI-generated"
+            echo "3) Conventional (git log)"
+            read -p "Select option [1-3]: " NOTES_CHOICE
             
-            if [[ "$USE_AI_NOTES" == "y" || "$USE_AI_NOTES" == "Y" ]]; then
-                RELEASE_NOTES="$AI_NOTES"
-            else
-                RELEASE_NOTES="$CONVENTIONAL_NOTES"
-            fi
+            case $NOTES_CHOICE in
+                1)
+                    RELEASE_NOTES="$AI_NOTES"
+                    echo "✓ Using enhanced AI-generated notes"
+                    ;;
+                2)
+                    RELEASE_NOTES="$BASIC_AI_NOTES"
+                    echo "✓ Using basic AI-generated notes"
+                    ;;
+                3)
+                    RELEASE_NOTES="$CONVENTIONAL_NOTES"
+                    echo "✓ Using conventional notes"
+                    ;;
+                *)
+                    echo "Invalid choice, defaulting to enhanced AI-generated notes"
+                    RELEASE_NOTES="$AI_NOTES"
+                    ;;
+            esac
         fi
     else
         # Use conventional release notes if AI is not available
@@ -355,32 +454,18 @@ fi
 
 # Confirm with user
 echo ""
-echo "Ready to release:"
+echo "🧪 TEST MODE: Final Release Output 🧪"
+echo "Ready to release (no actual changes will be made):"
 echo "  Current version: $CURRENT_VERSION"
 echo "  New version:     $NEW_VERSION"
 echo "  Release notes:"
 echo "$RELEASE_NOTES"
 echo ""
-read -p "Proceed with release? (y/n): " CONFIRM
 
-if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
-    echo "Release canceled."
-    exit 0
-fi
-
-# Create and push tag
-git tag -a "$NEW_VERSION" -m "Release $NEW_VERSION"
-echo "✅ Tag $NEW_VERSION created."
-
-echo "Pushing tag to remote..."
-git push origin "$NEW_VERSION"
-echo "✅ Tag pushed to remote."
-
-# Run goreleaser
-echo "Running goreleaser..."
-RELEASE_NOTES_FILE=$(mktemp)
-echo "$RELEASE_NOTES" > "$RELEASE_NOTES_FILE"
-GORELEASER_PREVIOUS_TAG="$CURRENT_VERSION" GORELEASER_CURRENT_TAG="$NEW_VERSION" goreleaser release --release-notes="$RELEASE_NOTES_FILE" --clean
-rm "$RELEASE_NOTES_FILE"
-
-echo "✅ Release $NEW_VERSION complete!"
+# In the test mode, we won't actually create tags or publish
+echo "🧪 TEST COMPLETE: In a real release, the following would happen:"
+echo "- Git tag '$NEW_VERSION' would be created"
+echo "- Tag would be pushed to remote"
+echo "- Goreleaser would create and publish the release"
+echo ""
+echo "✅ Test complete! The script reached the end without errors."
