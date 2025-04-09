@@ -2,6 +2,8 @@
 
 `git-sweep` is an interactive command-line tool written in Go to help you clean up old or merged Git branches in your local repository.
 
+test
+
 It analyzes your local branches based on their merge status (compared to a primary branch like `main` or `master`) and the time since their last commit. It then presents candidate branches in an interactive terminal UI (TUI), allowing you to select branches for safe deletion locally and optionally on their corresponding remote.
 
 ## Features
