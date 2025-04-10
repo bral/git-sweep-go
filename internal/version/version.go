@@ -5,9 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,7 +49,42 @@ func Check(ctx context.Context, currentVersion string, cfg *config.Config) (bool
 		if cfg.LatestKnownVersion != "" && cfg.LatestKnownVersion != currentVersion {
 			cleanCurrent := strings.TrimPrefix(currentVersion, "v")
 			cleanLatest := strings.TrimPrefix(cfg.LatestKnownVersion, "v")
-			if cleanLatest > cleanCurrent {
+
+			// Use proper semantic versioning comparison
+			hasUpdate := false
+			latestVersionParts := strings.Split(cleanLatest, ".")
+			currentVersionParts := strings.Split(cleanCurrent, ".")
+
+			// Compare each part numerically
+			for i := 0; i < len(latestVersionParts) && i < len(currentVersionParts); i++ {
+				latestPart, latestErr := strconv.Atoi(latestVersionParts[i])
+				currentPart, currentErr := strconv.Atoi(currentVersionParts[i])
+
+				// If conversion fails, fall back to string comparison for this part
+				if latestErr != nil || currentErr != nil {
+					if latestVersionParts[i] > currentVersionParts[i] {
+						hasUpdate = true
+						break
+					} else if latestVersionParts[i] < currentVersionParts[i] {
+						break
+					}
+					continue
+				}
+
+				if latestPart > currentPart {
+					hasUpdate = true
+					break
+				} else if latestPart < currentPart {
+					break
+				}
+			}
+
+			// If all compared parts are equal but latest has more parts, it's newer
+			if !hasUpdate && len(latestVersionParts) > len(currentVersionParts) {
+				hasUpdate = true
+			}
+
+			if hasUpdate {
 				return true, cfg.LatestKnownVersion, GitHubReleaseURL, nil
 			}
 		}
@@ -92,12 +130,44 @@ func Check(ctx context.Context, currentVersion string, cfg *config.Config) (bool
 		fmt.Fprintf(os.Stderr, "Warning: Failed to save version check info: %v\n", err)
 	}
 
-	// Compare versions (simple string comparison after removing 'v' prefix)
+	// Compare versions (using proper semantic versioning comparison)
 	cleanCurrent := strings.TrimPrefix(currentVersion, "v")
 	cleanLatest := strings.TrimPrefix(release.TagName, "v")
 
-	if cleanLatest > cleanCurrent {
+	// Use proper semantic versioning comparison
+	latestVersionParts := strings.Split(cleanLatest, ".")
+	currentVersionParts := strings.Split(cleanCurrent, ".")
+
+	// Compare each part numerically
+	for i := 0; i < len(latestVersionParts) && i < len(currentVersionParts); i++ {
+		latestPart, latestErr := strconv.Atoi(latestVersionParts[i])
+		currentPart, currentErr := strconv.Atoi(currentVersionParts[i])
+
+		// If conversion fails, fall back to string comparison for this part
+		if latestErr != nil || currentErr != nil {
+			if latestVersionParts[i] > currentVersionParts[i] {
+				hasUpdate = true
+				break
+			} else if latestVersionParts[i] < currentVersionParts[i] {
+				break
+			}
+			continue
+		}
+
+		if latestPart > currentPart {
+			hasUpdate = true
+			break
+		} else if latestPart < currentPart {
+			break
+		}
+	}
+
+	// If all compared parts are equal but latest has more parts, it's newer
+	if !hasUpdate && len(latestVersionParts) > len(currentVersionParts) {
 		hasUpdate = true
+	}
+
+	if hasUpdate {
 		latestVersion = release.TagName
 		releaseURL = release.HTMLURL
 	}
@@ -140,6 +210,14 @@ func performUpdate(latestVersion string) {
 	// Use os.Stdout to comply with linting rules
 	out := os.Stdout
 
+	// Validate that latestVersion has a valid format (v1.2.3 or similar)
+	if !strings.HasPrefix(latestVersion, "v") || !isValidSemVer(latestVersion[1:]) {
+		_, _ = fmt.Fprintf(out, "❌ Invalid version format: %s\n", latestVersion)
+		_, _ = fmt.Fprintln(out, "Please update manually:")
+		printManualInstructions(out)
+		return
+	}
+
 	// Try different update mechanisms
 
 	// 1. Try go install
@@ -153,8 +231,20 @@ func performUpdate(latestVersion string) {
 		return
 	}
 
-	// 3. If auto-update failed, provide manual instructions
+	// If auto-update failed, provide manual instructions
 	_, _ = fmt.Fprintln(out, "\nAutomatic update failed. Please update manually:")
+	printManualInstructions(out)
+}
+
+// isValidSemVer returns true if the version string follows valid semver format
+func isValidSemVer(version string) bool {
+	// Simple regex check for semver format (x.y.z with optional pre-release/build metadata)
+	matched, err := regexp.MatchString(`^(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z-]+)?(\+[0-9A-Za-z-]+)?$`, version)
+	return err == nil && matched
+}
+
+// printManualInstructions prints instructions for manual updates
+func printManualInstructions(out io.Writer) {
 	_, _ = fmt.Fprintln(out, "- Download the latest version from GitHub:")
 	_, _ = fmt.Fprintf(out, "  %s\n", "https://github.com/bral/git-sweep-go/releases/latest")
 	_, _ = fmt.Fprintln(out, "- Or use your package manager to update")
