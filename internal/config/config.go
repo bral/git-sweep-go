@@ -26,6 +26,8 @@ type Config struct {
 	AgeDays           int      `toml:"age_days"`
 	PrimaryMainBranch string   `toml:"primary_main_branch"`
 	ProtectedBranches []string `toml:"protected_branches"`
+	LastVersionCheck  int64    `toml:"last_version_check"`  // Unix timestamp of last check
+	LatestKnownVersion string  `toml:"latest_known_version"` // Latest version found during checks
 
 	// Internal map for faster lookups, not loaded from TOML directly
 	ProtectedBranchMap map[string]bool `toml:"-"`
@@ -37,6 +39,8 @@ func DefaultConfig() Config {
 		AgeDays:            defaultAgeDays,
 		PrimaryMainBranch:  defaultMainBranch,
 		ProtectedBranches:  []string{}, // Default is empty list
+		LastVersionCheck:   0,          // 0 means never checked
+		LatestKnownVersion: "",         // Empty means no known version
 		ProtectedBranchMap: make(map[string]bool),
 	}
 }
@@ -154,13 +158,17 @@ func SaveConfig(cfg Config, customPath string) (string, error) {
 	encoder := toml.NewEncoder(file)
 	// We don't want to save the internal map
 	configToSave := struct {
-		AgeDays           int      `toml:"age_days"`
-		PrimaryMainBranch string   `toml:"primary_main_branch"`
-		ProtectedBranches []string `toml:"protected_branches"`
+		AgeDays            int      `toml:"age_days"`
+		PrimaryMainBranch  string   `toml:"primary_main_branch"`
+		ProtectedBranches  []string `toml:"protected_branches"`
+		LastVersionCheck   int64    `toml:"last_version_check"`
+		LatestKnownVersion string   `toml:"latest_known_version"`
 	}{
-		AgeDays:           cfg.AgeDays,
-		PrimaryMainBranch: cfg.PrimaryMainBranch,
-		ProtectedBranches: cfg.ProtectedBranches,
+		AgeDays:            cfg.AgeDays,
+		PrimaryMainBranch:  cfg.PrimaryMainBranch,
+		ProtectedBranches:  cfg.ProtectedBranches,
+		LastVersionCheck:   cfg.LastVersionCheck,
+		LatestKnownVersion: cfg.LatestKnownVersion,
 	}
 
 	if err := encoder.Encode(configToSave); err != nil {

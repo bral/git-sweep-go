@@ -16,7 +16,8 @@ import (
 	"github.com/bral/git-sweep-go/internal/gitcmd" // Added gitcmd import
 	"github.com/bral/git-sweep-go/internal/tui"    // Added tui import
 	"github.com/bral/git-sweep-go/internal/types"
-	tea "github.com/charmbracelet/bubbletea" // Added bubbletea import
+	versionpkg "github.com/bral/git-sweep-go/internal/version" // Added version import with alias
+	tea "github.com/charmbracelet/bubbletea"                   // Added bubbletea import
 	"github.com/spf13/cobra"
 )
 
@@ -258,6 +259,19 @@ safely (both locally and optionally on the remote).`,
 		return nil // No error from pre-run
 	},
 	Run: func(cmd *cobra.Command, _ []string) { // Renamed args to _
+		// Check for updates unless explicitly disabled
+		skipVersionCheck, _ := cmd.Flags().GetBool("skip-version-check")
+		if !skipVersionCheck {
+			hasUpdate, latestVersion, releaseURL, err := versionpkg.Check(cmd.Context(), version, &appConfig)
+			if err != nil {
+				// Log error in debug mode, but don't interrupt normal operation
+				logDebugf("Version check error: %v\n", err)
+			} else if hasUpdate {
+				// Show update notification if there's a new version
+				versionpkg.ShowUpdateNotification(version, latestVersion, releaseURL)
+			}
+		}
+
 		// Check for quick-status flag
 		quickStatus, _ := cmd.Flags().GetBool("quick-status")
 		var dryRun bool // Declare but don't initialize yet
@@ -415,6 +429,8 @@ func init() {
 		"Override config: The single main branch name to check merge status against (empty uses config default).")
 	rootCmd.PersistentFlags().StringSlice("protected", []string{},
 		"Override config: Comma-separated list of protected branch names.")
+	rootCmd.PersistentFlags().Bool("skip-version-check", false,
+		"Skip checking for new versions.")
 	// Add quick-status flag (Bool, local to root command)
 	rootCmd.Flags().Bool("quick-status", false, "Print a quick summary of candidate branches and exit.")
 
