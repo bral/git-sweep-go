@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -38,6 +39,8 @@ type GitHubRelease struct {
 // 4. Updates config with check time and latest version
 // 5. Returns information about available updates
 func Check(ctx context.Context, currentVersion string, cfg *config.Config) (bool, string, string, error) {
+	// Try to get the correct version from build info if it's "dev"
+	currentVersion = GetVersionFromBuildInfo(currentVersion)
 	now := time.Now().Unix()
 	hasUpdate := false
 	latestVersion := ""
@@ -180,19 +183,22 @@ func ShowUpdateNotification(currentVersion, latestVersion, releaseURL string) {
 	// Use os.Stdout to comply with linting rules
 	out := os.Stdout
 
+	// Try to get the correct version from build info if it's "dev"
+	currentVersion = GetVersionFromBuildInfo(currentVersion)
+
 	_, _ = fmt.Fprintln(out, "")
-	_, _ = fmt.Fprintln(out, "╭─────────────────────────────────────────────────────╮")
-	_, _ = fmt.Fprintln(out, "│             🚀 New Version Available! 🚀             │")
-	_, _ = fmt.Fprintln(out, "├─────────────────────────────────────────────────────┤")
-	_, _ = fmt.Fprintf(out, "│ Current version: %-37s │\n", currentVersion)
-	_, _ = fmt.Fprintf(out, "│ Latest version:  %-37s │\n", latestVersion)
-	_, _ = fmt.Fprintln(out, "│                                                     │")
-	_, _ = fmt.Fprintln(out, "│ To update:                                          │")
-	_, _ = fmt.Fprintln(out, "│ • Go users: go install github.com/bral/git-sweep-go │")
-	_, _ = fmt.Fprintln(out, "│ • Binary: Download from GitHub releases page        │")
-	_, _ = fmt.Fprintln(out, "│                                                     │")
-	_, _ = fmt.Fprintf(out, "│ Release details: %-36s │\n", releaseURL)
-	_, _ = fmt.Fprintln(out, "╰─────────────────────────────────────────────────────╯")
+	_, _ = fmt.Fprintln(out, "╭────────────────────────────────────────────────────────────────────────────╮")
+	_, _ = fmt.Fprintln(out, "│                        🚀 New Version Available! 🚀                         │")
+	_, _ = fmt.Fprintln(out, "├────────────────────────────────────────────────────────────────────────────┤")
+	_, _ = fmt.Fprintf(out, "│ Current version: %-62s │\n", currentVersion)
+	_, _ = fmt.Fprintf(out, "│ Latest version:  %-62s │\n", latestVersion)
+	_, _ = fmt.Fprintln(out, "│                                                                            │")
+	_, _ = fmt.Fprintln(out, "│ To update:                                                                 │")
+	_, _ = fmt.Fprintln(out, "│ • Go users: go install github.com/bral/git-sweep-go/cmd/git-sweep@latest   │")
+	_, _ = fmt.Fprintln(out, "│ • Binary: Download from GitHub releases page                               │")
+	_, _ = fmt.Fprintln(out, "│                                                                            │")
+	_, _ = fmt.Fprintf(out, "│ Release details: %-61s │\n", releaseURL)
+	_, _ = fmt.Fprintln(out, "╰────────────────────────────────────────────────────────────────────────────╯")
 	_, _ = fmt.Fprintln(out, "")
 
 	// Ask if user wants to update now
@@ -222,7 +228,7 @@ func performUpdate(latestVersion string) {
 
 	// 1. Try go install
 	_, _ = fmt.Fprintln(out, "Attempting update via go install...")
-	cmd := exec.Command("go", "install", "github.com/bral/git-sweep-go@"+latestVersion)
+	cmd := exec.Command("go", "install", "github.com/bral/git-sweep-go/cmd/git-sweep@"+latestVersion)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	err := cmd.Run()
@@ -248,4 +254,19 @@ func printManualInstructions(out io.Writer) {
 	_, _ = fmt.Fprintln(out, "- Download the latest version from GitHub:")
 	_, _ = fmt.Fprintf(out, "  %s\n", "https://github.com/bral/git-sweep-go/releases/latest")
 	_, _ = fmt.Fprintln(out, "- Or use your package manager to update")
+}
+
+// GetVersionFromBuildInfo returns the version extracted from build info if available
+// This is useful when running with go install where ldflags might not be set
+func GetVersionFromBuildInfo(currentVersion string) string {
+	if currentVersion != "dev" {
+		return currentVersion
+	}
+
+	info, ok := debug.ReadBuildInfo()
+	if ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+
+	return currentVersion
 }
