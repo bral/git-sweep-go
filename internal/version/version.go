@@ -51,7 +51,7 @@ func Check(ctx context.Context, currentVersion string, cfg *config.Config) (bool
 			cleanLatest := strings.TrimPrefix(cfg.LatestKnownVersion, "v")
 
 			// Use proper semantic versioning comparison
-			hasUpdate := false
+			hasUpdate = false
 			latestVersionParts := strings.Split(cleanLatest, ".")
 			currentVersionParts := strings.Split(cleanCurrent, ".")
 
