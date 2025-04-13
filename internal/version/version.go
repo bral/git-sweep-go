@@ -187,18 +187,18 @@ func ShowUpdateNotification(currentVersion, latestVersion, releaseURL string) {
 	currentVersion = GetVersionFromBuildInfo(currentVersion)
 
 	_, _ = fmt.Fprintln(out, "")
-	_, _ = fmt.Fprintln(out, "╭────────────────────────────────────────────────────────────────────────────╮")
-	_, _ = fmt.Fprintln(out, "│                        🚀 New Version Available! 🚀                         │")
-	_, _ = fmt.Fprintln(out, "├────────────────────────────────────────────────────────────────────────────┤")
-	_, _ = fmt.Fprintf(out, "│ Current version: %-62s │\n", currentVersion)
-	_, _ = fmt.Fprintf(out, "│ Latest version:  %-62s │\n", latestVersion)
-	_, _ = fmt.Fprintln(out, "│                                                                            │")
-	_, _ = fmt.Fprintln(out, "│ To update:                                                                 │")
-	_, _ = fmt.Fprintln(out, "│ • Go users: go install github.com/bral/git-sweep-go/cmd/git-sweep@latest   │")
-	_, _ = fmt.Fprintln(out, "│ • Binary: Download from GitHub releases page                               │")
-	_, _ = fmt.Fprintln(out, "│                                                                            │")
-	_, _ = fmt.Fprintf(out, "│ Release details: %-61s │\n", releaseURL)
-	_, _ = fmt.Fprintln(out, "╰────────────────────────────────────────────────────────────────────────────╯")
+	_, _ = fmt.Fprintln(out, "----------------------------------------")
+	_, _ = fmt.Fprintln(out, "🚀 New Version Available! 🚀")
+	_, _ = fmt.Fprintln(out, "----------------------------------------")
+	_, _ = fmt.Fprintf(out, "Current version: %s\n", currentVersion)
+	_, _ = fmt.Fprintf(out, "Latest version:  %s\n", latestVersion)
+	_, _ = fmt.Fprintln(out, "")
+	_, _ = fmt.Fprintln(out, "To update:")
+	_, _ = fmt.Fprintln(out, "• Go users: go install github.com/bral/git-sweep-go/cmd/git-sweep@latest")
+	_, _ = fmt.Fprintln(out, "• Binary: Download from GitHub releases page")
+	_, _ = fmt.Fprintln(out, "")
+	_, _ = fmt.Fprintf(out, "Release details: %s\n", releaseURL)
+	_, _ = fmt.Fprintln(out, "----------------------------------------")
 	_, _ = fmt.Fprintln(out, "")
 
 	// Ask if user wants to update now
@@ -228,7 +228,9 @@ func performUpdate(latestVersion string) {
 
 	// 1. Try go install
 	_, _ = fmt.Fprintln(out, "Attempting update via go install...")
-	cmd := exec.Command("go", "install", "github.com/bral/git-sweep-go/cmd/git-sweep@"+latestVersion)
+	packagePath := "github.com/bral/git-sweep-go/cmd/git-sweep@" + latestVersion
+	_, _ = fmt.Fprintf(out, "Running: go install %s\n", packagePath)
+	cmd := exec.Command("go", "install", packagePath)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	err := cmd.Run()
@@ -251,7 +253,9 @@ func isValidSemVer(version string) bool {
 
 // printManualInstructions prints instructions for manual updates
 func printManualInstructions(out io.Writer) {
-	_, _ = fmt.Fprintln(out, "- Download the latest version from GitHub:")
+	_, _ = fmt.Fprintln(out, "- For Go users: Run the following command:")
+	_, _ = fmt.Fprintln(out, "  go install github.com/bral/git-sweep-go/cmd/git-sweep@latest")
+	_, _ = fmt.Fprintln(out, "- Or download the latest binary from GitHub:")
 	_, _ = fmt.Fprintf(out, "  %s\n", "https://github.com/bral/git-sweep-go/releases/latest")
 	_, _ = fmt.Fprintln(out, "- Or use your package manager to update")
 }
