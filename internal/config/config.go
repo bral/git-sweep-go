@@ -23,11 +23,11 @@ const (
 // Config holds the application configuration settings.
 // Tags correspond to the keys in the TOML configuration file.
 type Config struct {
-	AgeDays           int      `toml:"age_days"`
-	PrimaryMainBranch string   `toml:"primary_main_branch"`
-	ProtectedBranches []string `toml:"protected_branches"`
-	LastVersionCheck  int64    `toml:"last_version_check"`  // Unix timestamp of last check
-	LatestKnownVersion string  `toml:"latest_known_version"` // Latest version found during checks
+	AgeDays            int      `toml:"age_days"`
+	PrimaryMainBranch  string   `toml:"primary_main_branch"`
+	ProtectedBranches  []string `toml:"protected_branches"`
+	LastVersionCheck   int64    `toml:"last_version_check"`   // Unix timestamp of last check
+	LatestKnownVersion string   `toml:"latest_known_version"` // Latest version found during checks
 
 	// Internal map for faster lookups, not loaded from TOML directly
 	ProtectedBranchMap map[string]bool `toml:"-"`
