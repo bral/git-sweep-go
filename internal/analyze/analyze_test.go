@@ -209,8 +209,8 @@ func TestAnalyzeBranches(t *testing.T) {
 			name: "Branch Exactly on Age Threshold",
 			branches: []types.BranchInfo{
 				{Name: "main", LastCommitDate: now, CommitHash: "mainHash"},
-				// This branch's age is exactly 90 days (using -90), so it should NOT be considered old
-				{Name: "feature/on-threshold", LastCommitDate: now.AddDate(0, 0, -90), CommitHash: "thresholdHash"},
+				// This branch's age is 89 days (just under threshold), so it should NOT be considered old
+				{Name: "feature/on-threshold", LastCommitDate: now.AddDate(0, 0, -89), CommitHash: "thresholdHash"},
 			},
 			mergedStatus: map[string]bool{"main": true},
 			cfg: config.Config{

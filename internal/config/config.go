@@ -25,10 +25,8 @@ type Config struct {
 	ProtectedBranchMap map[string]bool `mapstructure:"-" yaml:"-"` // Not loaded from file, populated at runtime
 
 	// Cleanup settings
-	// MinBranchAge is the minimum age in days for a branch to be considered stale
-	MinBranchAge int `mapstructure:"min_branch_age" yaml:"min_branch_age"`
-	// AgeDays is legacy/compat field used throughout codebase
-	AgeDays int `mapstructure:"age_days" yaml:"age_days"`
+	MinBranchAge int  `mapstructure:"min_branch_age" yaml:"min_branch_age"` // Min age in days
+	AgeDays      int  `mapstructure:"age_days" yaml:"age_days"`             // Legacy compat field
 	DeleteRemote   bool `mapstructure:"delete_remote" yaml:"delete_remote"`
 	RequireConfirm bool `mapstructure:"require_confirm" yaml:"require_confirm"`
 
@@ -48,12 +46,12 @@ var ErrConfigNotFound = errors.New("configuration file not found")
 func LoadConfig(customPath string) (*Config, error) {
 	config := &Config{}
 
-	viper.SetConfigType("yaml")
-
 	if customPath != "" {
 		viper.SetConfigFile(customPath)
+		// Let viper auto-detect the file type from the extension
 	} else {
 		viper.SetConfigName("config")
+		viper.SetConfigType("yaml")
 		configDir := getConfigDir()
 		viper.AddConfigPath(configDir)
 		viper.AddConfigPath(".")
@@ -61,7 +59,12 @@ func LoadConfig(customPath string) (*Config, error) {
 
 	if err := viper.ReadInConfig(); err != nil {
 		var configFileNotFoundError viper.ConfigFileNotFoundError
+		// Check for viper's ConfigFileNotFoundError or any wrapped os.ErrNotExist
 		if errors.As(err, &configFileNotFoundError) {
+			return nil, ErrConfigNotFound
+		}
+		// Check if the underlying error is a file not found error
+		if errors.Is(err, os.ErrNotExist) {
 			return nil, ErrConfigNotFound
 		}
 		return nil, errors.New("error reading config file: " + err.Error())
