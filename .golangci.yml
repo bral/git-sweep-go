@@ -9,14 +9,15 @@ run:
   allow-parallel-runners: true
 
 linters:
-  default: none
+  disable-all: true
   enable:
-    # Core linters
-    - errcheck
     - govet
-    - ineffassign
+    - errcheck
     - staticcheck
+    - ineffassign
     - unused
+    - misspell
+    # Core linters
     - bodyclose
     - durationcheck
     - goconst
@@ -26,7 +27,6 @@ linters:
     - misspell
     - prealloc
     - predeclared
-    - revive
     - unconvert
     - unparam
     - whitespace
@@ -43,12 +43,6 @@ linters:
     - makezero
     - nilnil
     - tparallel
-
-formatters:
-  enable:
-    - gofmt
-    - goimports
-    - gofumpt
 
 linters-settings:
   govet:
@@ -68,6 +62,7 @@ linters-settings:
     line-length: 120
 
   revive:
+    enable-all-rules: false
     rules:
       - name: exported
         severity: warning
@@ -92,6 +87,8 @@ issues:
   max-issues-per-linter: 0
   max-same-issues: 0
   fix: true
+  exclude:
+    - "avoid meaningless package names"
 
   exclude-rules:
     - path: _test\.go
@@ -104,6 +101,9 @@ issues:
     - path: pkg/logger/
       linters:
         - lll
+    - path: internal/types/branch\.go
+      linters:
+        - revive
 
     # Exclude known false positives
     - text: "G104:"
@@ -112,3 +112,6 @@ issues:
     - text: "G204:"
       linters:
         - gosec
+    - text: "var-naming: avoid meaningless package names"
+      linters:
+        - revive

@@ -57,6 +57,16 @@ This will download, compile, and install the `git-sweep` executable into your `$
     ```
 4.  (Optional) Move the `git-sweep` executable to a directory in your system's PATH (e.g., `/usr/local/bin` or `~/bin`) to run it from anywhere.
 
+## Development Workflow
+
+- Requires Go 1.21+ (project is compatible with Go 1.21 and newer)
+- Common commands (see Makefile):
+  - `make build` — build the project
+  - `make test` — run all tests
+  - `make lint` — run golangci-lint
+  - `make ci` — run build, lint, and test (same as CI)
+- CI: GitHub Actions workflow runs build, lint, and test on every push/PR (see .github/workflows/ci.yml)
+
 ## Usage
 
 1.  Navigate (`cd`) into the Git repository you want to clean up.

@@ -1,0 +1,123 @@
+{
+  "meta": {
+    "generatedAt": "2025-04-15T23:51:51.685Z",
+    "tasksAnalyzed": 14,
+    "thresholdScore": 5,
+    "projectName": "Your Project Name",
+    "usedResearch": false
+  },
+  "complexityAnalysis": [
+    {
+      "taskId": 2,
+      "taskTitle": "Implement Git Command Execution Framework",
+      "complexityScore": 7,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the Git Command Execution Framework into subtasks including: 1) Core command execution mechanism, 2) Error handling and response parsing, 3) Implementation of common Git operations, 4) Environment and version handling, 5) Authentication and credential management",
+      "reasoning": "This task requires designing a robust framework that handles multiple Git operations with proper error handling across different environments. The complexity comes from handling different Git versions, authentication, timeout management, and resource cleanup."
+    },
+    {
+      "taskId": 3,
+      "taskTitle": "Create Configuration Management System",
+      "complexityScore": 6,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Divide the Configuration Management System into subtasks including: 1) YAML parsing and file handling, 2) Default configuration implementation, 3) User configuration loading and merging, 4) Configuration validation and error reporting",
+      "reasoning": "Creating a configuration system involves file I/O, validation logic, and handling multiple configuration sources. The complexity comes from ensuring proper validation, handling different OS paths for config files, and implementing a flexible but type-safe configuration structure."
+    },
+    {
+      "taskId": 4,
+      "taskTitle": "Implement Branch Identification and Listing",
+      "complexityScore": 6,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down Branch Identification and Listing into subtasks including: 1) Local branch listing implementation, 2) Remote branch discovery and parsing, 3) Branch relationship mapping (tracking info), 4) Data structure design for branch information",
+      "reasoning": "This task requires interfacing with Git to extract and parse branch information, which can be complex due to different Git outputs and formats. Handling multiple remotes and creating proper data structures adds to the complexity."
+    },
+    {
+      "taskId": 5,
+      "taskTitle": "Develop Branch Analysis Logic",
+      "complexityScore": 7,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Divide Branch Analysis Logic into subtasks including: 1) Branch age determination based on commit history, 2) Merge status detection algorithms, 3) Activity pattern analysis implementation, 4) Staleness calculation with configurable thresholds",
+      "reasoning": "This task involves complex Git operations to analyze branch history, merge status, and activity patterns. The algorithms for determining staleness and analyzing patterns over time add significant complexity."
+    },
+    {
+      "taskId": 6,
+      "taskTitle": "Implement Branch Protection Mechanism",
+      "complexityScore": 5,
+      "recommendedSubtasks": 3,
+      "expansionPrompt": "Break down Branch Protection Mechanism into subtasks including: 1) Protected branch pattern matching implementation, 2) Configuration-based protection rules, 3) Branch modification validation functions",
+      "reasoning": "While not as complex as some other tasks, this requires careful implementation of pattern matching and validation logic to ensure protected branches aren't accidentally modified. The integration with the configuration system adds some complexity."
+    },
+    {
+      "taskId": 7,
+      "taskTitle": "Create Backup Mechanism for Branch References",
+      "complexityScore": 6,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Divide Backup Mechanism into subtasks including: 1) Branch reference state capture implementation, 2) Backup storage format and persistence, 3) Restoration functionality from backup, 4) Backup rotation and management",
+      "reasoning": "This task requires designing a reliable backup system that can store and restore branch state. The complexity comes from ensuring the backup is accurate, can be properly restored, and includes rotation/cleanup functionality."
+    },
+    {
+      "taskId": 8,
+      "taskTitle": "Implement Branch Cleanup Operations",
+      "complexityScore": 8,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down Branch Cleanup Operations into subtasks including: 1) Merged branch deletion implementation, 2) Stale branch identification and removal, 3) Handling branches without upstream tracking, 4) Batch operation implementation with filters, 5) Integration with protection validation",
+      "reasoning": "This is a high-complexity task as it involves destructive operations that must be performed safely. It requires integration with multiple other components (protection, backup, analysis) and careful implementation of various cleanup strategies."
+    },
+    {
+      "taskId": 9,
+      "taskTitle": "Develop Dry-Run Mode",
+      "complexityScore": 5,
+      "recommendedSubtasks": 3,
+      "expansionPrompt": "Divide Dry-Run Mode implementation into subtasks including: 1) Operation simulation without execution, 2) Detailed reporting of simulated actions, 3) Consistent formatting between dry-run and actual execution",
+      "reasoning": "Implementing dry-run mode requires adding a simulation layer to all destructive operations. The complexity is moderate as it builds on existing functionality but needs careful implementation to accurately reflect what would happen."
+    },
+    {
+      "taskId": 10,
+      "taskTitle": "Create Interactive CLI Interface",
+      "complexityScore": 7,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down CLI Interface implementation into subtasks including: 1) Command structure and argument parsing, 2) Help documentation generation, 3) Interactive confirmation prompts, 4) Color-coded output formatting, 5) Progress indication for long-running operations",
+      "reasoning": "Creating a user-friendly CLI involves multiple components including argument parsing, interactive prompts, and visual feedback. The complexity comes from designing an intuitive interface that handles all the application's functionality."
+    },
+    {
+      "taskId": 11,
+      "taskTitle": "Implement Logging System",
+      "complexityScore": 5,
+      "recommendedSubtasks": 3,
+      "expansionPrompt": "Divide Logging System implementation into subtasks including: 1) Structured logging with multiple verbosity levels, 2) File and console output configuration, 3) Context-rich logging integration throughout the application",
+      "reasoning": "Implementing a logging system is moderately complex, requiring a consistent approach throughout the application. The structured logging with different output targets adds some complexity."
+    },
+    {
+      "taskId": 12,
+      "taskTitle": "Optimize Performance for Large Repositories",
+      "complexityScore": 8,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down Performance Optimization into subtasks including: 1) Concurrent branch processing implementation, 2) Caching system for Git command results, 3) Algorithm optimization for branch analysis, 4) Resource usage monitoring and throttling",
+      "reasoning": "Performance optimization involves complex concurrency handling, caching mechanisms, and algorithm improvements. This requires deep understanding of the application's performance bottlenecks and careful implementation to avoid race conditions."
+    },
+    {
+      "taskId": 13,
+      "taskTitle": "Implement Error Handling and Recovery",
+      "complexityScore": 7,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Divide Error Handling and Recovery into subtasks including: 1) Comprehensive error type hierarchy, 2) User-friendly error message generation, 3) Recovery mechanisms for common failures, 4) Cleanup procedures after error conditions",
+      "reasoning": "Implementing robust error handling throughout the application is complex as it requires anticipating various failure modes and providing appropriate recovery mechanisms. This needs to be integrated across all components of the application."
+    },
+    {
+      "taskId": 14,
+      "taskTitle": "Create Comprehensive Tests",
+      "complexityScore": 9,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down Test Creation into subtasks including: 1) Unit test framework setup and core tests, 2) Git operation mocking for integration tests, 3) End-to-end test scenarios, 4) Test fixtures and repository setup, 5) Performance benchmarking tests",
+      "reasoning": "Creating a comprehensive test suite is highly complex due to the need to test Git operations, which require careful mocking or actual repositories. The variety of test types (unit, integration, end-to-end) and the goal of high coverage add to the complexity."
+    },
+    {
+      "taskId": 15,
+      "taskTitle": "Package for Distribution",
+      "complexityScore": 6,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Divide Distribution Packaging into subtasks including: 1) Cross-platform build process setup, 2) Release artifact generation with versioning, 3) Documentation and usage example creation, 4) Continuous integration configuration",
+      "reasoning": "Packaging for distribution requires setting up build processes for multiple platforms and creating proper release artifacts. The complexity comes from ensuring consistent builds across different environments and setting up CI/CD pipelines."
+    }
+  ]
+}

@@ -19,6 +19,7 @@ import (
 	versionpkg "github.com/bral/git-sweep-go/internal/version" // Added version import with alias
 	tea "github.com/charmbracelet/bubbletea"                   // Added bubbletea import
 	"github.com/spf13/cobra"
+	"go.uber.org/zap"
 )
 
 // version is set during build via ldflags
@@ -28,6 +29,7 @@ var version = "dev"
 var (
 	appConfig config.Config
 	isDebug   bool // Global variable to store debug flag state
+	logger    *zap.Logger
 )
 
 // logDebugf prints only if the --debug flag is set, writing to stderr.
@@ -183,13 +185,10 @@ func runQuickStatus(ctx context.Context) {
 }
 
 var rootCmd = &cobra.Command{
-	Use: "git-sweep",
-	// Version is set dynamically in init() below
-	Short: "git-sweep helps clean up old Git branches interactively",
-	Long: `git-sweep analyzes your local Git repository for branches that are
-merged or haven't been updated recently. It presents these branches
-in an interactive terminal UI, allowing you to select and delete them
-safely (both locally and optionally on the remote).`,
+	Use:   "git-sweep",
+	Short: "A tool for managing and cleaning up Git repositories",
+	Long: `git-sweep is a command-line tool that helps you maintain clean Git repositories
+by identifying and safely removing unnecessary branches based on configurable criteria.`,
 	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error { // Renamed args to _
 		// Get debug flag value early
 		isDebug, _ = cmd.Flags().GetBool("debug")
@@ -199,33 +198,32 @@ safely (both locally and optionally on the remote).`,
 		logDebugf("Custom config path flag: %q\n", customConfigPath)
 
 		var err error
-		appConfig, err = config.LoadConfig(customConfigPath)
-
+		cfgPtr, err := config.LoadConfig(customConfigPath)
 		if err != nil {
 			if errors.Is(err, config.ErrConfigNotFound) {
 				// Config not found, run first-time setup
 				_, _ = fmt.Fprintln(os.Stdout, "Configuration file not found. Starting first-time setup...")
 				reader := bufio.NewReader(os.Stdin)
 				// Pass os.Stdout explicitly, FirstRunSetup now handles error checking for writes
-				appConfig, err = config.FirstRunSetup(reader, os.Stdout)
-				if err != nil {
-					return fmt.Errorf("failed during first-time setup: %w", err)
+				cfg, setupErr := config.FirstRunSetup(reader, os.Stdout)
+				if setupErr != nil {
+					return fmt.Errorf("failed during first-time setup: %w", setupErr)
 				}
 
 				// Save the newly created config
-				savedPath, saveErr := config.SaveConfig(appConfig, customConfigPath)
+				savedPath, saveErr := config.SaveConfig(cfg, customConfigPath)
 				if saveErr != nil {
-					// Warning goes to Stderr, no change needed for fmt.Fprintf
 					fmt.Fprintf(os.Stderr, "Warning: Failed to save configuration to %q: %v\n", savedPath, saveErr)
 				} else {
 					_, _ = fmt.Fprintf(os.Stdout, "Configuration saved to %q\n", savedPath)
 				}
 				_, _ = fmt.Fprintln(os.Stdout, "Setup complete. Continuing execution...")
-				err = nil //nolint:ineffassign // Reset error after successful setup, this is intentional
+				appConfig = cfg
 			} else {
 				return fmt.Errorf("failed to load configuration: %w", err)
 			}
 		} else {
+			appConfig = *cfgPtr
 			logDebugln("Configuration loaded successfully.")
 		}
 
@@ -397,25 +395,16 @@ safely (both locally and optionally on the remote).`,
 	},
 }
 
-func main() {
-	// Use the version set by ldflags, or fallback to Go's build info
-	if version == "dev" {
-		info, ok := debug.ReadBuildInfo()
-		if ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
-			rootCmd.Version = info.Main.Version
-		} else {
-			rootCmd.Version = version // Use the default "dev" value
-		}
-	} else {
-		rootCmd.Version = version // Use the version set by goreleaser
-	}
-
-	if err := rootCmd.Execute(); err != nil {
-		os.Exit(1)
-	}
-}
-
 func init() {
+	var err error
+	logger, err = zap.NewProduction()
+	if err != nil {
+		panic("failed to initialize logger: " + err.Error())
+	}
+	defer func() {
+		_ = logger.Sync() // Ignore sync errors on shutdown
+	}()
+
 	// Define flags based on PROJECT_PLAN.md Section 10
 	rootCmd.PersistentFlags().Bool("debug", false, "Enable debug logging.")
 	rootCmd.PersistentFlags().Bool("dry-run", false, "Analyze and preview actions, but do not delete.")
@@ -481,4 +470,23 @@ is not found, it will guide you through the first-time setup process.`,
 		},
 	}
 	rootCmd.AddCommand(showConfigCmd)
+}
+
+func main() {
+	// Use the version set by ldflags, or fallback to Go's build info
+	if version == "dev" {
+		info, ok := debug.ReadBuildInfo()
+		if ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+			rootCmd.Version = info.Main.Version
+		} else {
+			rootCmd.Version = version // Use the default "dev" value
+		}
+	} else {
+		rootCmd.Version = version // Use the version set by goreleaser
+	}
+
+	if err := rootCmd.Execute(); err != nil {
+		logger.Error("command execution failed", zap.Error(err))
+		os.Exit(1)
+	}
 }

@@ -31,6 +31,41 @@ type GitHubRelease struct {
 	HTMLURL string `json:"html_url"`
 }
 
+// compareSemanticVersions compares two semantic version strings
+// Returns true if latest is newer than current
+func compareSemanticVersions(latest, current string) bool {
+	cleanLatest := strings.TrimPrefix(latest, "v")
+	cleanCurrent := strings.TrimPrefix(current, "v")
+
+	latestParts := strings.Split(cleanLatest, ".")
+	currentParts := strings.Split(cleanCurrent, ".")
+
+	// Compare each part numerically
+	for i := 0; i < len(latestParts) && i < len(currentParts); i++ {
+		latestPart, latestErr := strconv.Atoi(latestParts[i])
+		currentPart, currentErr := strconv.Atoi(currentParts[i])
+
+		// If conversion fails, fall back to string comparison
+		if latestErr != nil || currentErr != nil {
+			if latestParts[i] > currentParts[i] {
+				return true
+			} else if latestParts[i] < currentParts[i] {
+				return false
+			}
+			continue
+		}
+
+		if latestPart > currentPart {
+			return true
+		} else if latestPart < currentPart {
+			return false
+		}
+	}
+
+	// If all compared parts are equal but latest has more parts, it's newer
+	return len(latestParts) > len(currentParts)
+}
+
 // Check checks if a new version is available and returns information about the update
 // It follows these steps:
 // 1. Checks if 24 hours have passed since last check
@@ -50,44 +85,7 @@ func Check(ctx context.Context, currentVersion string, cfg *config.Config) (bool
 	if now-cfg.LastVersionCheck < DayInSeconds {
 		// If we already know about an update, return that info
 		if cfg.LatestKnownVersion != "" && cfg.LatestKnownVersion != currentVersion {
-			cleanCurrent := strings.TrimPrefix(currentVersion, "v")
-			cleanLatest := strings.TrimPrefix(cfg.LatestKnownVersion, "v")
-
-			// Use proper semantic versioning comparison
-			hasUpdate = false
-			latestVersionParts := strings.Split(cleanLatest, ".")
-			currentVersionParts := strings.Split(cleanCurrent, ".")
-
-			// Compare each part numerically
-			for i := 0; i < len(latestVersionParts) && i < len(currentVersionParts); i++ {
-				latestPart, latestErr := strconv.Atoi(latestVersionParts[i])
-				currentPart, currentErr := strconv.Atoi(currentVersionParts[i])
-
-				// If conversion fails, fall back to string comparison for this part
-				if latestErr != nil || currentErr != nil {
-					if latestVersionParts[i] > currentVersionParts[i] {
-						hasUpdate = true
-						break
-					} else if latestVersionParts[i] < currentVersionParts[i] {
-						break
-					}
-					continue
-				}
-
-				if latestPart > currentPart {
-					hasUpdate = true
-					break
-				} else if latestPart < currentPart {
-					break
-				}
-			}
-
-			// If all compared parts are equal but latest has more parts, it's newer
-			if !hasUpdate && len(latestVersionParts) > len(currentVersionParts) {
-				hasUpdate = true
-			}
-
-			if hasUpdate {
+			if compareSemanticVersions(cfg.LatestKnownVersion, currentVersion) {
 				return true, cfg.LatestKnownVersion, GitHubReleaseURL, nil
 			}
 		}
@@ -133,43 +131,8 @@ func Check(ctx context.Context, currentVersion string, cfg *config.Config) (bool
 		fmt.Fprintf(os.Stderr, "Warning: Failed to save version check info: %v\n", err)
 	}
 
-	// Compare versions (using proper semantic versioning comparison)
-	cleanCurrent := strings.TrimPrefix(currentVersion, "v")
-	cleanLatest := strings.TrimPrefix(release.TagName, "v")
-
-	// Use proper semantic versioning comparison
-	latestVersionParts := strings.Split(cleanLatest, ".")
-	currentVersionParts := strings.Split(cleanCurrent, ".")
-
-	// Compare each part numerically
-	for i := 0; i < len(latestVersionParts) && i < len(currentVersionParts); i++ {
-		latestPart, latestErr := strconv.Atoi(latestVersionParts[i])
-		currentPart, currentErr := strconv.Atoi(currentVersionParts[i])
-
-		// If conversion fails, fall back to string comparison for this part
-		if latestErr != nil || currentErr != nil {
-			if latestVersionParts[i] > currentVersionParts[i] {
-				hasUpdate = true
-				break
-			} else if latestVersionParts[i] < currentVersionParts[i] {
-				break
-			}
-			continue
-		}
-
-		if latestPart > currentPart {
-			hasUpdate = true
-			break
-		} else if latestPart < currentPart {
-			break
-		}
-	}
-
-	// If all compared parts are equal but latest has more parts, it's newer
-	if !hasUpdate && len(latestVersionParts) > len(currentVersionParts) {
-		hasUpdate = true
-	}
-
+	// Compare versions
+	hasUpdate = compareSemanticVersions(release.TagName, currentVersion)
 	if hasUpdate {
 		latestVersion = release.TagName
 		releaseURL = release.HTMLURL

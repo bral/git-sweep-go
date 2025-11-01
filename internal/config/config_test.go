@@ -1,4 +1,4 @@
-package config
+package config_test
 
 import (
 	"errors"
@@ -6,36 +6,31 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/bral/git-sweep-go/internal/config"
 )
 
 func TestLoadConfig_NotFound(t *testing.T) {
 	// Test loading when no config file exists (custom or default)
-	// We expect default config and ErrConfigNotFound
+	// We expect nil config and ErrConfigNotFound
 	tempDir := t.TempDir()
 	nonExistentPath := filepath.Join(tempDir, "nonexistent.toml")
 
-	cfg, err := LoadConfig(nonExistentPath)
-
-	if !errors.Is(err, ErrConfigNotFound) {
+	cfg, err := config.LoadConfig(nonExistentPath)
+	if !errors.Is(err, config.ErrConfigNotFound) {
 		t.Errorf("Expected ErrConfigNotFound, got: %v", err)
 	}
-
-	defaultCfg := DefaultConfig()
-	if !reflect.DeepEqual(cfg, defaultCfg) {
-		t.Errorf("Expected default config when file not found, got %+v", cfg)
-	}
-	// Check map initialization specifically
-	if cfg.ProtectedBranchMap == nil {
-		t.Error("Expected ProtectedBranchMap to be initialized even on default config, got nil")
+	if cfg != nil {
+		t.Errorf("Expected nil config when file not found, got: %+v", cfg)
 	}
 }
 
 func TestSaveAndLoadConfig(t *testing.T) {
 	tempDir := t.TempDir()
-	customPath := filepath.Join(tempDir, "test_config.toml")
+	customPath := filepath.Join(tempDir, "test_config.yaml")
 
 	// 1. Create a config to save
-	configToSave := Config{
+	configToSave := config.Config{
 		AgeDays:            60,
 		PrimaryMainBranch:  "develop",
 		ProtectedBranches:  []string{"main", "release/v1"},
@@ -43,7 +38,7 @@ func TestSaveAndLoadConfig(t *testing.T) {
 	}
 
 	// 2. Save the config
-	savedPath, err := SaveConfig(configToSave, customPath)
+	savedPath, err := config.SaveConfig(configToSave, customPath)
 	if err != nil {
 		t.Fatalf("SaveConfig failed: %v", err)
 	}
@@ -52,12 +47,12 @@ func TestSaveAndLoadConfig(t *testing.T) {
 	}
 
 	// 3. Load the config back
-	loadedCfg, err := LoadConfig(customPath)
+	loadedCfg, err := config.LoadConfig(customPath)
 	if err != nil {
 		t.Fatalf("LoadConfig failed after save: %v", err)
 	}
 
-	// 4. Verify the loaded config matches the saved one (excluding the map)
+	// 4. Compare only persisted fields
 	if loadedCfg.AgeDays != configToSave.AgeDays {
 		t.Errorf("Loaded AgeDays mismatch: got %d, want %d", loadedCfg.AgeDays, configToSave.AgeDays)
 	}
@@ -70,8 +65,11 @@ func TestSaveAndLoadConfig(t *testing.T) {
 			loadedCfg.ProtectedBranches, configToSave.ProtectedBranches)
 	}
 
-	// 5. Verify the ProtectedBranchMap was populated correctly by LoadConfig
-	expectedMap := map[string]bool{"main": true, "release/v1": true}
+	// 5. ProtectedBranchMap should match loaded ProtectedBranches
+	expectedMap := make(map[string]bool)
+	for _, branch := range loadedCfg.ProtectedBranches {
+		expectedMap[branch] = true
+	}
 	if !reflect.DeepEqual(loadedCfg.ProtectedBranchMap, expectedMap) {
 		t.Errorf("Loaded ProtectedBranchMap mismatch: got %v, want %v", loadedCfg.ProtectedBranchMap, expectedMap)
 	}
@@ -79,54 +77,60 @@ func TestSaveAndLoadConfig(t *testing.T) {
 
 func TestLoadConfig_DefaultsApplied(t *testing.T) {
 	tempDir := t.TempDir()
-	customPath := filepath.Join(tempDir, "partial_config.toml")
+	customPath := filepath.Join(tempDir, "partial_config.yaml")
 
-	// Create a config file with missing/invalid values
-	partialContent := `
-# age_days = 0 # Invalid, should use default
-primary_main_branch = "" # Empty, should use default
-# protected_branches is omitted, should use default empty slice
+	// Create a config file with missing/invalid values (YAML)
+	partialContent := `age_days: 0
+primary_main_branch: ""
+# protected_branches is omitted, should use default
 `
 	err := os.WriteFile(customPath, []byte(partialContent), 0o644)
 	if err != nil {
 		t.Fatalf("Failed to write partial config file: %v", err)
 	}
 
-	loadedCfg, err := LoadConfig(customPath)
+	loadedCfg, err := config.LoadConfig(customPath)
 	if err != nil {
 		t.Fatalf("LoadConfig failed for partial config: %v", err)
 	}
 
-	// Check if defaults were applied
-	if loadedCfg.AgeDays != defaultAgeDays {
-		t.Errorf("Expected default AgeDays %d, got %d", defaultAgeDays, loadedCfg.AgeDays)
+	// Only omitted fields get defaults; present fields (even zero/empty) are preserved
+	if loadedCfg.AgeDays != 0 {
+		t.Errorf("Expected AgeDays 0 (explicit in YAML), got %d", loadedCfg.AgeDays)
 	}
-	if loadedCfg.PrimaryMainBranch != defaultMainBranch {
-		t.Errorf("Expected default PrimaryMainBranch %q, got %q", defaultMainBranch, loadedCfg.PrimaryMainBranch)
+	if loadedCfg.PrimaryMainBranch != "" {
+		t.Errorf("Expected PrimaryMainBranch empty (explicit in YAML), got %q", loadedCfg.PrimaryMainBranch)
 	}
-	if len(loadedCfg.ProtectedBranches) != 0 {
-		t.Errorf("Expected empty ProtectedBranches slice, got %v", loadedCfg.ProtectedBranches)
+	expectedBranches := []string{"main", "master", "develop"}
+	if !reflect.DeepEqual(loadedCfg.ProtectedBranches, expectedBranches) {
+		t.Errorf("Expected default ProtectedBranches %v, got %v", expectedBranches, loadedCfg.ProtectedBranches)
 	}
-	if len(loadedCfg.ProtectedBranchMap) != 0 {
-		t.Errorf("Expected empty ProtectedBranchMap, got %v", loadedCfg.ProtectedBranchMap)
+	// ProtectedBranchMap should match loaded ProtectedBranches
+	expectedMap := make(map[string]bool)
+	for _, branch := range loadedCfg.ProtectedBranches {
+		expectedMap[branch] = true
+	}
+	if !reflect.DeepEqual(loadedCfg.ProtectedBranchMap, expectedMap) {
+		t.Errorf("Expected ProtectedBranchMap to match ProtectedBranches, got %v", loadedCfg.ProtectedBranchMap)
 	}
 }
 
-func TestLoadConfig_InvalidToml(t *testing.T) {
+func TestLoadConfig_InvalidYaml(t *testing.T) {
 	tempDir := t.TempDir()
-	customPath := filepath.Join(tempDir, "invalid.toml")
+	customPath := filepath.Join(tempDir, "invalid.yaml")
 
-	invalidContent := `age_days = 90\nprimary_main_branch = "main` // Missing closing quote
+	invalidContent := `age_days: 90
+primary_main_branch: "main` // Missing closing quote
 	err := os.WriteFile(customPath, []byte(invalidContent), 0o644)
 	if err != nil {
 		t.Fatalf("Failed to write invalid config file: %v", err)
 	}
 
-	_, err = LoadConfig(customPath)
+	_, err = config.LoadConfig(customPath)
 	if err == nil {
-		t.Errorf("Expected an error when loading invalid TOML, got nil")
+		t.Errorf("Expected an error when loading invalid YAML, got nil")
 	}
-	// We could check for a specific error type from the toml library if needed,
+	// We could check for a specific error type from the yaml library if needed,
 	// but for now, just ensuring an error occurred is sufficient.
 }
 

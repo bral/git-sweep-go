@@ -25,21 +25,12 @@ var (
 	confirmPromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Bold(true)
 	warningStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("202")) // Orange/Red for warnings
 	successStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("78"))  // Green for success
-	errorStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // Red for errors
-	spinnerStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("205")) // Spinner color
-	forceDeleteStyle   = errorStyle.Bold(true).Reverse(true)                   // Style for force delete warnings
-	protectedStyle     = lipgloss.NewStyle().Faint(true)                       // Style for protected branches ONLY
+	errorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // Red for errors
+	spinnerStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("205")) // Spinner color
+	protectedStyle = lipgloss.NewStyle().Faint(true)                       // Style for protected branches ONLY
 	// Style for active branches (faint, unselectable)
 	activeStyle    = helpStyle.Faint(true)
 	separatorStyle = helpStyle.Faint(true) // Style for separator line
-	// New styles for remote selection states
-	remoteDimmedStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("240")).
-				Faint(true) // Dimmed style for unavailable remotes
-	remoteNoneStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240")).
-			Faint(true).
-			Italic(true) // Style for non-existent remotes
 
 	// Progress indicator styles
 	progressStyle       = helpStyle
@@ -367,6 +358,126 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleCursorUp moves the cursor up and auto-scrolls viewport if needed
+func (m *Model) handleCursorUp() {
+	if m.Cursor > 0 {
+		m.Cursor--
+		// Auto-scroll viewport when cursor moves out of view
+		sectionIndex := m.Cursor - len(m.KeyBranches)
+		if sectionIndex >= 0 {
+			viewport := m.Viewports[SectionSuggested]
+			if sectionIndex < viewport.Start {
+				viewport.Start = max(0, sectionIndex)
+				m.Viewports[SectionSuggested] = viewport
+			}
+		}
+	}
+}
+
+// handleCursorDown moves the cursor down and auto-scrolls viewport if needed
+func (m *Model) handleCursorDown(totalItems int) {
+	if m.Cursor < totalItems-1 {
+		m.Cursor++
+		// Auto-scroll viewport when cursor moves out of view
+		sectionIndex := m.Cursor - len(m.KeyBranches)
+		if sectionIndex >= 0 {
+			viewport := m.Viewports[SectionSuggested]
+			if sectionIndex >= viewport.Start+viewport.Size {
+				viewport.Start = max(0, sectionIndex-viewport.Size+1)
+				m.Viewports[SectionSuggested] = viewport
+			}
+		}
+	}
+}
+
+// handlePageUp scrolls the viewport up by one page
+func (m *Model) handlePageUp() {
+	viewport := m.Viewports[SectionSuggested]
+	viewport.Start = max(0, viewport.Start-viewport.Size)
+	m.Viewports[SectionSuggested] = viewport
+	newCursorPos := len(m.KeyBranches) + viewport.Start
+	if m.Cursor < newCursorPos || m.Cursor >= newCursorPos+viewport.Size {
+		m.Cursor = newCursorPos
+	}
+}
+
+// handlePageDown scrolls the viewport down by one page
+func (m *Model) handlePageDown() {
+	viewport := m.Viewports[SectionSuggested]
+	maxStart := max(0, viewport.Total-viewport.Size)
+	viewport.Start = min(maxStart, viewport.Start+viewport.Size)
+	m.Viewports[SectionSuggested] = viewport
+	newCursorPos := len(m.KeyBranches) + viewport.Start
+	if m.Cursor < newCursorPos || m.Cursor >= newCursorPos+viewport.Size {
+		m.Cursor = newCursorPos
+	}
+}
+
+// handleHomeKey jumps to the first item in the current section
+func (m *Model) handleHomeKey() {
+	viewport := m.Viewports[SectionSuggested]
+	viewport.Start = 0
+	m.Viewports[SectionSuggested] = viewport
+	m.Cursor = len(m.KeyBranches)
+}
+
+// handleEndKey jumps to the last item in the current section
+func (m *Model) handleEndKey() {
+	viewport := m.Viewports[SectionSuggested]
+	maxStart := max(0, viewport.Total-viewport.Size)
+	viewport.Start = maxStart
+	m.Viewports[SectionSuggested] = viewport
+	lastVisible := min(len(m.KeyBranches)+viewport.Start+viewport.Size-1,
+		len(m.KeyBranches)+len(m.SuggestedBranches)-1)
+	m.Cursor = lastVisible
+}
+
+// toggleLocalSelection toggles the local selection for the branch at cursor
+func (m *Model) toggleLocalSelection() {
+	if m.Cursor >= len(m.ListOrder) {
+		return
+	}
+	originalIndex := m.ListOrder[m.Cursor]
+	if !m.isSelectable(originalIndex) {
+		return
+	}
+	_, exists := m.SelectedLocal[originalIndex]
+	if exists {
+		delete(m.SelectedLocal, originalIndex)
+		delete(m.SelectedRemote, originalIndex)
+	} else {
+		m.SelectedLocal[originalIndex] = true
+		branch := m.AllAnalyzedBranches[originalIndex]
+		if branch.Remote != "" {
+			m.SelectedRemote[originalIndex] = true
+		}
+	}
+}
+
+// toggleRemoteSelection toggles the remote selection for the branch at cursor
+func (m *Model) toggleRemoteSelection() {
+	if m.Cursor >= len(m.ListOrder) {
+		return
+	}
+	originalIndex := m.ListOrder[m.Cursor]
+	if !m.isSelectable(originalIndex) {
+		return
+	}
+	if _, localSelected := m.SelectedLocal[originalIndex]; !localSelected {
+		return
+	}
+	branch := m.AllAnalyzedBranches[originalIndex]
+	if branch.Remote == "" {
+		return
+	}
+	_, remoteSelected := m.SelectedRemote[originalIndex]
+	if remoteSelected {
+		delete(m.SelectedRemote, originalIndex)
+	} else {
+		m.SelectedRemote[originalIndex] = true
+	}
+}
+
 // updateSelecting handles key presses when in the selecting state.
 func (m Model) updateSelecting(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	totalItems := len(m.ListOrder)
@@ -374,170 +485,50 @@ func (m Model) updateSelecting(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if msg.String() == "q" {
 			return m, tea.Quit
 		}
-		return m, nil // Ignore other keys if list is empty
+		return m, nil
 	}
 
-	// Get the current section for the cursor
+	// Get and update current section
 	var cursorSection Section
 	if m.Cursor < len(m.ListOrder) {
 		originalIndex := m.ListOrder[m.Cursor]
 		cursorSection = m.getBranchSection(originalIndex)
 	} else {
-		cursorSection = SectionSuggested // Default
+		cursorSection = SectionSuggested
 	}
-
-	// Update current section based on cursor position
 	m.CurrentSection = cursorSection
 
 	switch msg.String() {
 	case "q":
 		return m, tea.Quit
-
 	case "up", "k":
-		if m.Cursor > 0 {
-			m.Cursor--
-
-			// Auto-scroll viewport when cursor moves out of view
-			if cursorSection == SectionSuggested {
-				// Calculate the index within the suggested branches section
-				// The cursor is in the suggested section if it's after the key branches
-				// So the index in the suggested section is (cursor - len(keyBranches))
-				sectionIndex := m.Cursor - len(m.KeyBranches)
-
-				// If cursor is now in the suggested section and out of viewport
-				if sectionIndex >= 0 { // Make sure we're in the suggested section
-					viewport := m.Viewports[SectionSuggested]
-					if sectionIndex < viewport.Start {
-						viewport.Start = max(0, sectionIndex)
-						m.Viewports[SectionSuggested] = viewport
-					}
-				}
-			}
-		}
-
+		m.handleCursorUp()
 	case "down", "j":
-		if m.Cursor < totalItems-1 {
-			m.Cursor++
-
-			// Auto-scroll viewport when cursor moves out of view
-			if cursorSection == SectionSuggested {
-				// Calculate the index within the suggested branches section
-				// The cursor is in the suggested section if it's after the key branches
-				// So the index in the suggested section is (cursor - len(keyBranches))
-				sectionIndex := m.Cursor - len(m.KeyBranches)
-
-				// If cursor is now in the suggested section and out of viewport
-				if sectionIndex >= 0 { // Make sure we're in the suggested section
-					viewport := m.Viewports[SectionSuggested]
-					if sectionIndex >= viewport.Start+viewport.Size {
-						viewport.Start = max(0, sectionIndex-viewport.Size+1)
-						m.Viewports[SectionSuggested] = viewport
-					}
-				}
-			}
-		}
-
+		m.handleCursorDown(totalItems)
 	case "pgup":
-		// Only scroll in the suggested section
 		if cursorSection == SectionSuggested {
-			viewport := m.Viewports[SectionSuggested]
-			// Move viewport up by page size
-			viewport.Start = max(0, viewport.Start-viewport.Size)
-			m.Viewports[SectionSuggested] = viewport
-
-			// Move cursor to top of viewport if it's now outside
-			newCursorPos := len(m.KeyBranches) + viewport.Start
-			if m.Cursor < newCursorPos || m.Cursor >= newCursorPos+viewport.Size {
-				m.Cursor = newCursorPos
-			}
+			m.handlePageUp()
 		}
-
 	case "pgdown":
-		// Only scroll in the suggested section
 		if cursorSection == SectionSuggested {
-			viewport := m.Viewports[SectionSuggested]
-			// Move viewport down by page size
-			maxStart := max(0, viewport.Total-viewport.Size)
-			viewport.Start = min(maxStart, viewport.Start+viewport.Size)
-			m.Viewports[SectionSuggested] = viewport
-
-			// Move cursor to top of viewport
-			newCursorPos := len(m.KeyBranches) + viewport.Start
-			if m.Cursor < newCursorPos || m.Cursor >= newCursorPos+viewport.Size {
-				m.Cursor = newCursorPos
-			}
+			m.handlePageDown()
 		}
-
 	case "home":
-		// Jump to first item in current section
 		if cursorSection == SectionSuggested {
-			viewport := m.Viewports[SectionSuggested]
-			viewport.Start = 0
-			m.Viewports[SectionSuggested] = viewport
-
-			// Move cursor to first item in section
-			m.Cursor = len(m.KeyBranches)
+			m.handleHomeKey()
 		}
-
 	case "end":
-		// Jump to last item in current section
 		if cursorSection == SectionSuggested {
-			viewport := m.Viewports[SectionSuggested]
-			maxStart := max(0, viewport.Total-viewport.Size)
-			viewport.Start = maxStart
-			m.Viewports[SectionSuggested] = viewport
-
-			// Move cursor to last visible item
-			lastVisible := min(len(m.KeyBranches)+viewport.Start+viewport.Size-1,
-				len(m.KeyBranches)+len(m.SuggestedBranches)-1)
-			m.Cursor = lastVisible
+			m.handleEndKey()
 		}
-
-	case " ": // Toggle local selection
-		if m.Cursor >= len(m.ListOrder) {
-			break // Bounds check
-		}
-		originalIndex := m.ListOrder[m.Cursor]
-		if m.isSelectable(originalIndex) {
-			_, exists := m.SelectedLocal[originalIndex]
-			if exists {
-				delete(m.SelectedLocal, originalIndex)
-				delete(m.SelectedRemote, originalIndex) // Also deselect remote
-			} else {
-				m.SelectedLocal[originalIndex] = true
-
-				// Auto-select remote if it exists
-				branch := m.AllAnalyzedBranches[originalIndex]
-				if branch.Remote != "" {
-					m.SelectedRemote[originalIndex] = true
-				}
-			}
-		}
-
-	case "tab", "r": // Toggle remote selection
-		if m.Cursor >= len(m.ListOrder) {
-			break // Bounds check
-		}
-		originalIndex := m.ListOrder[m.Cursor]
-		if m.isSelectable(originalIndex) {
-			if _, localSelected := m.SelectedLocal[originalIndex]; localSelected {
-				branch := m.AllAnalyzedBranches[originalIndex]
-				if branch.Remote != "" {
-					_, remoteSelected := m.SelectedRemote[originalIndex]
-					if remoteSelected {
-						delete(m.SelectedRemote, originalIndex)
-					} else {
-						m.SelectedRemote[originalIndex] = true
-					}
-				}
-			}
-		}
-
+	case " ":
+		m.toggleLocalSelection()
+	case "tab", "r":
+		m.toggleRemoteSelection()
 	case "enter":
 		if len(m.SelectedLocal) > 0 || len(m.SelectedRemote) > 0 {
 			m.ViewState = StateConfirming
 		}
-		return m, nil // No command needed here
 	}
 
 	return m, nil

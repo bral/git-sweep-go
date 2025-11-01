@@ -2,121 +2,107 @@
 package config
 
 import (
-	"errors" // Import errors package
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
-	"github.com/BurntSushi/toml"
+	"github.com/spf13/viper"
+	"gopkg.in/yaml.v2"
 )
 
-// ErrConfigNotFound is returned by LoadConfig when no config file is found.
+const defaultAgeDays = 90        // Default max age for unmerged branches (days)
+const defaultMainBranch = "main" // Default primary development branch
+
+// Config holds the application configuration
+// All fields must be kept in sync with usage in main.go, setup.go, analyze.go, and tests.
+type Config struct {
+	// General settings
+	Debug bool `mapstructure:"debug" yaml:"debug"`
+
+	// Branch protection settings
+	ProtectedBranches  []string        `mapstructure:"protected_branches" yaml:"protected_branches"`
+	ProtectedBranchMap map[string]bool `mapstructure:"-" yaml:"-"` // Not loaded from file, populated at runtime
+
+	// Cleanup settings
+	// MinBranchAge is the minimum age in days for a branch to be considered stale
+	MinBranchAge int `mapstructure:"min_branch_age" yaml:"min_branch_age"`
+	// AgeDays is legacy/compat field used throughout codebase
+	AgeDays int `mapstructure:"age_days" yaml:"age_days"`
+	DeleteRemote   bool `mapstructure:"delete_remote" yaml:"delete_remote"`
+	RequireConfirm bool `mapstructure:"require_confirm" yaml:"require_confirm"`
+
+	// Main branch settings
+	PrimaryMainBranch string `mapstructure:"primary_main_branch" yaml:"primary_main_branch"`
+
+	// Version tracking
+	LastVersionCheck   int64  `mapstructure:"last_version_check" yaml:"last_version_check"`
+	LatestKnownVersion string `mapstructure:"latest_known_version" yaml:"latest_known_version"`
+}
+
+// ErrConfigNotFound is returned when no config file is found.
 var ErrConfigNotFound = errors.New("configuration file not found")
 
-const (
-	defaultConfigDir  = "git-sweep"
-	defaultConfigFile = "config.toml"
-	defaultAgeDays    = 90
-	defaultMainBranch = "main"
-)
+// LoadConfig loads the configuration from the given path (if provided) or the default location.
+// Returns ErrConfigNotFound if no config file is found.
+func LoadConfig(customPath string) (*Config, error) {
+	config := &Config{}
 
-// Config holds the application configuration settings.
-// Tags correspond to the keys in the TOML configuration file.
-type Config struct {
-	AgeDays            int      `toml:"age_days"`
-	PrimaryMainBranch  string   `toml:"primary_main_branch"`
-	ProtectedBranches  []string `toml:"protected_branches"`
-	LastVersionCheck   int64    `toml:"last_version_check"`   // Unix timestamp of last check
-	LatestKnownVersion string   `toml:"latest_known_version"` // Latest version found during checks
+	viper.SetConfigType("yaml")
 
-	// Internal map for faster lookups, not loaded from TOML directly
-	ProtectedBranchMap map[string]bool `toml:"-"`
-}
-
-// DefaultConfig returns a Config struct with default values.
-func DefaultConfig() Config {
-	return Config{
-		AgeDays:            defaultAgeDays,
-		PrimaryMainBranch:  defaultMainBranch,
-		ProtectedBranches:  []string{}, // Default is empty list
-		LastVersionCheck:   0,          // 0 means never checked
-		LatestKnownVersion: "",         // Empty means no known version
-		ProtectedBranchMap: make(map[string]bool),
-	}
-}
-
-// LoadConfig loads configuration from the specified path or the default location.
-// If a custom path is provided and exists, it's used. Otherwise, it checks the default path.
-// If neither exists, it returns default settings and ErrConfigNotFound.
-// It also populates the ProtectedBranchMap.
-func LoadConfig(customPath string) (Config, error) {
-	cfg := DefaultConfig()
-	configPath := ""
-	configFound := false
-
-	// Determine the path to load
 	if customPath != "" {
-		// If a custom path is provided, use it exclusively.
-		configPath = customPath
-		if _, err := os.Stat(customPath); err != nil {
-			if os.IsNotExist(err) {
-				// Custom path provided but doesn't exist
-				return cfg, ErrConfigNotFound
-			}
-			// Other error checking custom path
-			return cfg, fmt.Errorf("error checking custom config path %q: %w", customPath, err)
-		}
-		configFound = true // Custom path exists
+		viper.SetConfigFile(customPath)
 	} else {
-		// No custom path, check the default location.
-		userConfigDir, err := os.UserConfigDir()
-		if err != nil {
-			// Cannot determine user config dir, return defaults and ErrConfigNotFound
-			// (as the default path cannot be checked)
-			return cfg, ErrConfigNotFound
-		}
-		configPath = filepath.Join(userConfigDir, defaultConfigDir, defaultConfigFile)
-		if _, err := os.Stat(configPath); err != nil {
-			if os.IsNotExist(err) {
-				// Default path doesn't exist
-				return cfg, ErrConfigNotFound
-			}
-			// Other error checking default path
-			return cfg, fmt.Errorf("error checking default config path %q: %w", configPath, err)
-		}
-		configFound = true // Default path exists
+		viper.SetConfigName("config")
+		configDir := getConfigDir()
+		viper.AddConfigPath(configDir)
+		viper.AddConfigPath(".")
 	}
 
-	// If we reach here, configFound must be true and configPath is set.
-	// Load the configuration file.
-	if configFound { // This check is slightly redundant now but kept for clarity
-		if _, err := toml.DecodeFile(configPath, &cfg); err != nil {
-			return cfg, fmt.Errorf("error decoding config file %q: %w", configPath, err)
+	if err := viper.ReadInConfig(); err != nil {
+		var configFileNotFoundError viper.ConfigFileNotFoundError
+		if errors.As(err, &configFileNotFoundError) {
+			return nil, ErrConfigNotFound
 		}
-		// Ensure defaults are applied if values are missing or invalid in the file
-		if cfg.AgeDays <= 0 {
-			cfg.AgeDays = defaultAgeDays
-		}
-		if cfg.PrimaryMainBranch == "" {
-			cfg.PrimaryMainBranch = defaultMainBranch
-		}
-		// ProtectedBranches defaults to empty slice if nil
-		if cfg.ProtectedBranches == nil {
-			cfg.ProtectedBranches = []string{}
-		}
-	} else {
-		// Config file not found at either custom or default path.
-		// Return defaults and the specific ErrConfigNotFound error.
-		return cfg, ErrConfigNotFound
+		return nil, errors.New("error reading config file: " + err.Error())
 	}
 
-	// 4. Populate the ProtectedBranchMap
-	cfg.ProtectedBranchMap = make(map[string]bool)
-	for _, branch := range cfg.ProtectedBranches {
-		cfg.ProtectedBranchMap[branch] = true
+	viper.SetEnvPrefix("GIT_SWEEP")
+	viper.AutomaticEnv()
+
+	if err := viper.Unmarshal(config); err != nil {
+		return nil, errors.New("error unmarshaling config: " + err.Error())
 	}
 
-	return cfg, nil
+	// Post-process: apply defaults only for fields missing from YAML
+	present := map[string]bool{}
+	for _, k := range viper.AllKeys() {
+		present[k] = true
+	}
+	if !present["age_days"] && config.AgeDays == 0 {
+		config.AgeDays = defaultAgeDays
+	}
+	if !present["primary_main_branch"] && config.PrimaryMainBranch == "" {
+		config.PrimaryMainBranch = defaultMainBranch
+	}
+	if !present["protected_branches"] && len(config.ProtectedBranches) == 0 {
+		config.ProtectedBranches = []string{"main", "master", "develop"}
+	}
+	if config.ProtectedBranchMap == nil {
+		config.ProtectedBranchMap = make(map[string]bool)
+		for _, branch := range config.ProtectedBranches {
+			config.ProtectedBranchMap[branch] = true
+		}
+	}
+	return config, nil
+}
+
+func getConfigDir() string {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return "."
+	}
+	return filepath.Join(configDir, "git-sweep-go")
 }
 
 // SaveConfig saves the provided configuration to the specified path or the default location.
@@ -132,7 +118,7 @@ func SaveConfig(cfg Config, customPath string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("could not determine user config directory: %w", err)
 		}
-		savePath = filepath.Join(userConfigDir, defaultConfigDir, defaultConfigFile)
+		savePath = filepath.Join(userConfigDir, "git-sweep-go", "config.yaml")
 	}
 
 	// Ensure the directory exists
@@ -154,26 +140,27 @@ func SaveConfig(cfg Config, customPath string) (string, error) {
 		}
 	}()
 
-	// Encode the config to TOML
-	encoder := toml.NewEncoder(file)
-	// We don't want to save the internal map
-	configToSave := struct {
-		AgeDays            int      `toml:"age_days"`
-		PrimaryMainBranch  string   `toml:"primary_main_branch"`
-		ProtectedBranches  []string `toml:"protected_branches"`
-		LastVersionCheck   int64    `toml:"last_version_check"`
-		LatestKnownVersion string   `toml:"latest_known_version"`
-	}{
-		AgeDays:            cfg.AgeDays,
-		PrimaryMainBranch:  cfg.PrimaryMainBranch,
-		ProtectedBranches:  cfg.ProtectedBranches,
-		LastVersionCheck:   cfg.LastVersionCheck,
-		LatestKnownVersion: cfg.LatestKnownVersion,
-	}
-
-	if err := encoder.Encode(configToSave); err != nil {
-		return savePath, fmt.Errorf("could not encode config to TOML file %q: %w", savePath, err)
+	// Encode the config to YAML
+	encoder := yaml.NewEncoder(file)
+	if err := encoder.Encode(cfg); err != nil {
+		return savePath, fmt.Errorf("could not encode config to YAML file %q: %w", savePath, err)
 	}
 
 	return savePath, nil
+}
+
+// DefaultConfig returns a Config struct with all default values set.
+func DefaultConfig() Config {
+	return Config{
+		Debug:              false,
+		ProtectedBranches:  []string{"main", "master", "develop"},
+		ProtectedBranchMap: make(map[string]bool),
+		MinBranchAge:       30,
+		AgeDays:            defaultAgeDays,
+		DeleteRemote:       false,
+		RequireConfirm:     true,
+		PrimaryMainBranch:  defaultMainBranch,
+		LastVersionCheck:   0,
+		LatestKnownVersion: "",
+	}
 }

@@ -1,5 +1,4 @@
 //go:build integration
-// +build integration
 
 // Integration tests require the 'integration' build tag to run:
 // go test -tags=integration ./cmd/git-sweep/...
@@ -89,7 +88,9 @@ func TestMain(m *testing.M) {
 	fmt.Println("Building binary for integration tests...")
 
 	binaryName := "git-sweep-test"
-	if runtime.GOOS == "windows" { binaryName += ".exe" }
+	if runtime.GOOS == "windows" {
+		binaryName += ".exe"
+	}
 
 	buildPath, err := filepath.Abs(binaryName)
 	if err != nil {
@@ -130,7 +131,7 @@ func TestIntegrationDryRun(t *testing.T) {
 	defer cleanup()
 
 	now := time.Now()
-	oldDate := now.AddDate(0, 0, -100) // 100 days ago
+	oldDate := now.AddDate(0, 0, -100)   // 100 days ago
 	recentDate := now.AddDate(0, 0, -10) // 10 days ago
 
 	// Create branches
@@ -206,7 +207,7 @@ func TestIntegrationQuickStatus(t *testing.T) {
 	defer cleanup()
 
 	now := time.Now()
-	oldDate := now.AddDate(0, 0, -100) // 100 days ago
+	oldDate := now.AddDate(0, 0, -100)   // 100 days ago
 	recentDate := now.AddDate(0, 0, -10) // 10 days ago
 
 	// Create branches (same as dry run test)
@@ -286,8 +287,8 @@ func TestIntegrationFlagOverrides(t *testing.T) {
 	defer cleanup()
 
 	now := time.Now()
-	oldDate := now.AddDate(0, 0, -100) // 100 days ago (Old for age=90)
-	midDate := now.AddDate(0, 0, -60)  // 60 days ago (Old for age=30, Not for age=90)
+	oldDate := now.AddDate(0, 0, -100)   // 100 days ago (Old for age=90)
+	midDate := now.AddDate(0, 0, -60)    // 60 days ago (Old for age=30, Not for age=90)
 	recentDate := now.AddDate(0, 0, -10) // 10 days ago (Never old)
 
 	// Create branches
@@ -307,7 +308,6 @@ func TestIntegrationFlagOverrides(t *testing.T) {
 	runCmd(t, repoPath, "git", "checkout", "master")
 	runCmd(t, repoPath, "git", "merge", "--no-ff", "unmerged-mid", "-m", "Merge unmerged-mid into master")
 	runCmd(t, repoPath, "git", "checkout", "main")
-
 
 	// Run git-sweep with --dry-run and flag overrides
 	// Override age to 30, primary to master, protect protect-me
@@ -346,16 +346,30 @@ func TestIntegrationFlagOverrides(t *testing.T) {
 	// Final Displayable Candidates = unmerged-mid, merged-old, merged-mid, unmerged-old
 
 	// Check output
-	if !strings.Contains(output, "unmerged-mid") { t.Errorf("Expected 'unmerged-mid' (merged to master) in output, got:\n%s", output) }
-	if !strings.Contains(output, "merged-old") { t.Errorf("Expected 'merged-old' (unmerged from master, old) in output, got:\n%s", output) }
-	if !strings.Contains(output, "merged-mid") { t.Errorf("Expected 'merged-mid' (unmerged from master, old) in output, got:\n%s", output) }
-	if !strings.Contains(output, "unmerged-old") { t.Errorf("Expected 'unmerged-old' (unmerged from master, old) in output, got:\n%s", output) }
+	if !strings.Contains(output, "unmerged-mid") {
+		t.Errorf("Expected 'unmerged-mid' (merged to master) in output, got:\n%s", output)
+	}
+	if !strings.Contains(output, "merged-old") {
+		t.Errorf("Expected 'merged-old' (unmerged from master, old) in output, got:\n%s", output)
+	}
+	if !strings.Contains(output, "merged-mid") {
+		t.Errorf("Expected 'merged-mid' (unmerged from master, old) in output, got:\n%s", output)
+	}
+	if !strings.Contains(output, "unmerged-old") {
+		t.Errorf("Expected 'unmerged-old' (unmerged from master, old) in output, got:\n%s", output)
+	}
 
 	// Check non-candidates
 	// Skip this check as the test fails due to missing remote 'origin'
 	// if strings.Contains(output, "unmerged-recent") { t.Errorf("Did not expect 'unmerged-recent' (not old) in output, got:\n%s", output) }
-	if strings.Contains(output, "protect-me") { t.Errorf("Did not expect 'protect-me' (protected by flag) in output, got:\n%s", output) }
-	if strings.Contains(output, "master") { t.Errorf("Did not expect 'master' (primary branch) in output, got:\n%s", output) }
-	if strings.Contains(output, "main") { t.Errorf("Did not expect 'main' (current branch) in output, got:\n%s", output) }
+	if strings.Contains(output, "protect-me") {
+		t.Errorf("Did not expect 'protect-me' (protected by flag) in output, got:\n%s", output)
+	}
+	if strings.Contains(output, "master") {
+		t.Errorf("Did not expect 'master' (primary branch) in output, got:\n%s", output)
+	}
+	if strings.Contains(output, "main") {
+		t.Errorf("Did not expect 'main' (current branch) in output, got:\n%s", output)
+	}
 
 }
