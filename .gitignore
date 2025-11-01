@@ -17,6 +17,7 @@ git-sweep-test.exe
 
 # Editor
 .vscode
+.cursor/mcp.json
 
 # Go workspace file
 go.work
